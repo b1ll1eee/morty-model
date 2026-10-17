@@ -65,3 +65,29 @@ def test_permission_screen_dismisses():
             await pilot.pause()
             assert results == [True, False]
     _run(inner())
+
+
+def test_input_history_up_down(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui.log, "exchanges", lambda: [{"source": "chat", "question": "เก่าสุด"}, {"source": "chat", "question": "ล่าสุด"}])
+
+    async def inner():
+        app = ui.MortyApp("general", Path(tmp_path), use_tools=False)
+        async with app.run_test() as pilot:
+            inp = app.query_one("#input", ui.HistoryInput)
+            assert inp.history == ["เก่าสุด", "ล่าสุด"]
+            inp.value = "กำลังพิมพ์"
+            await pilot.press("up")
+            assert inp.value == "ล่าสุด"
+            await pilot.press("up")
+            assert inp.value == "เก่าสุด"
+            await pilot.press("up")               # สุดแล้ว ค้างที่เดิม
+            assert inp.value == "เก่าสุด"
+            await pilot.press("down")
+            assert inp.value == "ล่าสุด"
+            await pilot.press("down")             # กลับมาที่ร่างที่พิมพ์ค้างไว้
+            assert inp.value == "กำลังพิมพ์"
+            inp.value = "/help"
+            await pilot.press("enter")            # คำสั่งก็ถูกจำ และไม่จำซ้ำติดกัน
+            inp.remember("/help")
+            assert inp.history[-1] == "/help" and inp.history.count("/help") == 1 and inp.pos == len(inp.history)
+    _run(inner())

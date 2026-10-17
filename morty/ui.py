@@ -48,6 +48,44 @@ def _version() -> str:
         return "dev"
 
 
+class HistoryInput(Input):
+    """ช่องพิมพ์ที่กดลูกศรขึ้น/ลงเพื่อเรียกข้อความที่เคยส่ง (เหมือน shell) และจำข้ามรอบผ่าน log"""
+
+    BINDINGS = [Binding("up", "history_prev", "ก่อนหน้า", show=False), Binding("down", "history_next", "ถัดไป", show=False)]
+    MAX_HISTORY = 500
+
+    def __init__(self, *args, history: list[str] | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.history: list[str] = list(history or [])[-self.MAX_HISTORY:]
+        self.pos = len(self.history)  # ชี้หลังรายการสุดท้าย = กำลังพิมพ์ข้อความใหม่
+        self.draft = ""
+
+    def remember(self, text: str) -> None:
+        if text and (not self.history or self.history[-1] != text):
+            self.history.append(text)
+            self.history = self.history[-self.MAX_HISTORY:]
+        self.pos = len(self.history)
+        self.draft = ""
+
+    def _show(self, text: str) -> None:
+        self.value = text
+        self.cursor_position = len(text)
+
+    def action_history_prev(self) -> None:
+        if not self.history or self.pos == 0:
+            return
+        if self.pos == len(self.history):
+            self.draft = self.value
+        self.pos -= 1
+        self._show(self.history[self.pos])
+
+    def action_history_next(self) -> None:
+        if self.pos >= len(self.history):
+            return
+        self.pos += 1
+        self._show(self.history[self.pos] if self.pos < len(self.history) else self.draft)
+
+
 class PermissionScreen(ModalScreen[bool]):
     """กล่องขออนุญาต แสดงคำอธิบาย (มักเป็น diff) แล้วรอ y/n"""
 
@@ -149,9 +187,9 @@ class MortyApp(App):
         yield Static(id="status")
         yield VerticalScroll(id="transcript")
         with Vertical(id="bottom"):
-            yield Input(placeholder="พิมพ์ข้อความ หรือ / เพื่อดูคำสั่ง", id="input",
-                        suggester=SuggestFromList(SLASH, case_sensitive=False))
-            yield Static("[b]Enter[/b] ส่ง  ·  [b]/[/b] คำสั่ง  ·  [b]Ctrl+C[/b] หยุด  ·  [b]Ctrl+Q[/b] ออก  ·  [b]/theme[/b] เปลี่ยนธีม", id="hint")
+            yield HistoryInput(placeholder="พิมพ์ข้อความ หรือ / เพื่อดูคำสั่ง  (↑↓ ย้อนข้อความเก่า)", id="input",
+                               suggester=SuggestFromList(SLASH, case_sensitive=False), history=self.load_history())
+            yield Static("[b]Enter[/b] ส่ง  ·  [b]↑↓[/b] ข้อความเก่า  ·  [b]/[/b] คำสั่ง  ·  [b]Ctrl+C[/b] หยุด  ·  [b]Ctrl+Q[/b] ออก  ·  [b]/theme[/b] ธีม", id="hint")
 
     def on_mount(self) -> None:
         self.theme = "tokyo-night"
@@ -178,6 +216,14 @@ class MortyApp(App):
         tips.append("›  ", style="bold")
         tips.append("ตอบไม่ดีพิมพ์  /bad เหตุผล  เพื่อเก็บไว้ปรับปรุง   พิมพ์  /help  ดูคำสั่งทั้งหมด")
         box.mount(Static(tips))
+
+    def load_history(self) -> list[str]:
+        """ข้อความที่เคยส่งจากแชทครั้งก่อนๆ (จาก logs/) เพื่อให้ลูกศรขึ้นใช้ได้ตั้งแต่เปิดโปรแกรม"""
+        try:
+            rows = [e["question"] for e in log.exchanges() if e.get("source") == "chat" and "\n" not in e["question"]]
+            return rows[-HistoryInput.MAX_HISTORY:]
+        except Exception:  # noqa: BLE001
+            return []
 
     def _tick(self) -> None:
         if self.busy and self.thinking is not None:
@@ -269,6 +315,8 @@ class MortyApp(App):
         event.input.value = ""
         if not text:
             return
+        if isinstance(event.input, HistoryInput):
+            event.input.remember(text)
         if text.startswith("/"):
             self.handle_command(text)
             return
