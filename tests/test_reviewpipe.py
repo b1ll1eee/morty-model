@@ -75,7 +75,7 @@ def test_pipeline_with_fake_model(fake_chat):
         "[style] บรรทัด 1: ควรใส่ type hint",                 # style
         "1: KEEP - xs = []\n2: DROP - สมมติเกินโค้ดที่เห็น",     # verify
     ]
-    report = rp.review(prompt, snippet=(code, "python"), model="m")
+    report = rp.review(prompt, snippet=(code, "python"), model="m", thorough=True)
     assert report.passes == 4 and report.verified_dropped == 1
     sev = sorted(f.severity for f in report.findings)
     assert sev == ["bug", "style"]
@@ -95,3 +95,12 @@ def test_parse_findings_json_and_fallback():
 def test_parse_decisions_json_and_fallback():
     assert rp.parse_decisions('{"decisions": [{"n": 1, "verdict": "keep", "reason": "xs=[]"}, {"n": 2, "verdict": "DROP"}]}') == {1: ("KEEP", "xs=[]"), 2: ("DROP", "")}
     assert rp.parse_decisions("1: DOWNGRADE - เล็กน้อย") == {1: ("DOWNGRADE", "เล็กน้อย")}
+
+
+def test_pipeline_lite_is_one_pass(fake_chat):
+    queue, calls = fake_chat
+    code = "def f(xs):\n    return xs[0]\n"
+    queue += ['{"findings": [{"severity": "bug", "line": "2", "problem": "xs ว่าง"}]}',
+              '{"decisions": [{"n": 1, "verdict": "KEEP", "reason": "xs=[]"}]}']
+    report = rp.review(f"```python\n{code}```", snippet=(code, "python"), model="m")
+    assert report.passes == 1 and len(report.findings) == 1 and report.findings[0].verified

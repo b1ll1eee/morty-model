@@ -97,15 +97,15 @@ def judge(question: str, answer: str, case: dict, judge_model: str) -> tuple[int
         return None, f"judge ล้มเหลว: {e}"
 
 
-def ask_with_pipeline(profile_name: str, model: str, question: str) -> str:
+def ask_with_pipeline(profile_name: str, model: str, question: str, thorough: bool = False) -> str:
     m = FENCE_RE.search(question)
     snippet = (m.group(2), m.group(1).lower() or "python") if m else None
-    report = reviewpipe.review(question, snippet=snippet, model=model, profile_name=profile_name)
+    report = reviewpipe.review(question, snippet=snippet, model=model, profile_name=profile_name, thorough=thorough)
     return report.render()
 
 
 def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bool, console: Console,
-        use_tools: bool = False, allow_run: bool = False, use_pipeline: bool = False,
+        use_tools: bool = False, allow_run: bool = False, use_pipeline: bool = False, thorough: bool = False,
         judge_model: str | None = None, repeat: int = 1) -> list[dict]:
     """รัน eval ด้วยโมเดลเดียว (แต่ละข้อ repeat รอบ) พิมพ์ตาราง และคืน record ต่อข้อต่อรอบ"""
     console.print(
@@ -127,7 +127,7 @@ def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bo
         for run_idx in range(repeat):
             t0 = time.perf_counter()
             if use_pipeline:
-                answer = ask_with_pipeline(profile_name, model, case["q"])
+                answer = ask_with_pipeline(profile_name, model, case["q"], thorough)
             elif use_tools:
                 answer = ask_with_tools(profile_name, model, case["q"], allow_run)
             else:
@@ -206,7 +206,8 @@ def main() -> None:
     parser.add_argument("--set", default=None, help="ชื่อชุด eval ใน evals/ (ค่าเริ่มต้น = ชื่อ profile) เช่น dev-tools")
     parser.add_argument("--tools", action="store_true", help="รันผ่านวงจรเครื่องมือ (workspace = โฟลเดอร์โปรเจกต์)")
     parser.add_argument("--allow-run", action="store_true", help="อนุญาต run_command/run_python ระหว่าง eval")
-    parser.add_argument("--pipeline", action="store_true", help="reviewer: ใช้ pipeline (analyzer, หลายรอบ, ตรวจซ้ำ) แทนรอบเดียว")
+    parser.add_argument("--pipeline", action="store_true", help="reviewer: ใช้ pipeline (analyzer, ตรวจ, ตรวจซ้ำ) แทนรอบเดียว")
+    parser.add_argument("--thorough", action="store_true", help="ใช้คู่กับ --pipeline: ตรวจ 4 รอบแยกหัวข้อ")
     parser.add_argument("--judge", action="store_true", help="ให้โมเดลกรรมการให้คะแนน 0-2 ทุกคำตอบ")
     parser.add_argument("--judge-model", default="qwen3:14b", help="โมเดลกรรมการ (ค่าเริ่มต้น qwen3:14b)")
     parser.add_argument("--repeat", type=int, default=1, help="รันแต่ละข้อกี่รอบ เพื่อวัดความนิ่ง")
@@ -226,10 +227,10 @@ def main() -> None:
     summaries: list[dict] = []
     for model in models:
         records = run(args.profile, model, cases, rag=rag, show=args.show, console=console,
-                      use_tools=args.tools, allow_run=args.allow_run, use_pipeline=args.pipeline,
+                      use_tools=args.tools, allow_run=args.allow_run, use_pipeline=args.pipeline, thorough=args.thorough,
                       judge_model=args.judge_model if args.judge else None, repeat=args.repeat)
         safe = model.replace(":", "_").replace("/", "_")
-        mode = ("-tools" if args.tools else ("-pipeline" if args.pipeline else "")) + (f"-x{args.repeat}" if args.repeat > 1 else "")
+        mode = ("-tools" if args.tools else ("-thorough" if args.pipeline and args.thorough else ("-pipeline" if args.pipeline else ""))) + (f"-x{args.repeat}" if args.repeat > 1 else "")
         out = out_dir / f"{args.set or args.profile}-{tag}{mode}-{safe}-{stamp}.jsonl"
         out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n", encoding="utf-8")
         console.print(f"[dim]บันทึกผลที่ {out.relative_to(config.ROOT)}[/]\n")

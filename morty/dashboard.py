@@ -41,7 +41,7 @@ def load_eval_runs() -> list[dict]:
     if not RESULTS_DIR.is_dir():
         return runs
     # ชื่อโมเดลมีขีดได้ (qwen2.5-coder_7b) จึงยึด stamp ท้ายไฟล์เป็นหลัก
-    pat = re.compile(r"^(?P<set>.+?)-(?P<tag>rag|norag)(?P<mode>-tools|-pipeline)?(?:-(?P<model>.+?))?-(?P<stamp>\d{8}-\d{6})\.jsonl$")
+    pat = re.compile(r"^(?P<set>.+?)-(?P<tag>rag|norag)(?P<mode>-tools|-pipeline|-thorough)?(?:-x(?P<rep>\d+))?(?:-(?P<model>.+?))?-(?P<stamp>\d{8}-\d{6})\.jsonl$")
     for f in sorted(RESULTS_DIR.glob("*.jsonl")):
         m = pat.match(f.name)
         rows = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]

@@ -28,6 +28,9 @@ ASPECTS = [
     ("style", "ความชัดเจน", "ตรวจเฉพาะความชัดเจนและการดูแลรักษา รายงานเฉพาะที่กระทบการอ่านหรือแก้ไขจริงในระดับ [style] เท่านั้น ห้ามยกระดับเป็น bug หรือ risk ถ้าไม่มีอะไรสำคัญให้ตอบว่าไม่พบ"),
 ]
 
+# โหมด lite: analyzer + ตรวจรอบเดียวครบทุกหัวข้อ + ตรวจซ้ำ (เร็วกว่า thorough ราว 2.5 เท่า)
+ASPECT_ALL = ("all", "ทุกหัวข้อ", "ตรวจครบทั้ง 4 หัวข้อ: ความถูกต้อง (บั๊ก เงื่อนไขขอบ None resource สัญญาของฟังก์ชันตามคอมเมนต์และ type hint เช่นเรียก coroutine โดยไม่ await), ความปลอดภัย (injection ทุกชนิด secret ในโค้ด input ไม่ได้ตรวจ), ความทนทาน (พร้อมกัน timeout หารศูนย์ mutable default เทียบ float), ความชัดเจน (เฉพาะที่กระทบจริง ระดับ style เท่านั้น)")
+
 FINDING_RE = re.compile(r"^\s*[-*•]?\s*\[(bug|risk|style)\]\s*(.+)$", re.IGNORECASE)
 
 # JSON schema สำหรับ structured output ของ Ollama ลดการพึ่ง regex เมื่อโมเดลเปลี่ยนถ้อยคำ
@@ -296,8 +299,11 @@ def merge(findings: list[Finding]) -> list[Finding]:
 
 def review(code_prompt: str, *, py_files: list[Path] | None = None, snippet: tuple[str, str] | None = None,
            model: str | None = None, profile_name: str = "reviewer", on_event: Event | None = None,
-           aspects: list[tuple] | None = None) -> Report:
-    """code_prompt = ข้อความที่ให้โมเดลดู (มีโค้ดอยู่แล้ว); py_files หรือ snippet=(code, lang) สำหรับ analyzer"""
+           aspects: list[tuple] | None = None, thorough: bool = False) -> Report:
+    """code_prompt = ข้อความที่ให้โมเดลดู (มีโค้ดอยู่แล้ว); py_files หรือ snippet=(code, lang) สำหรับ analyzer
+    thorough=True ตรวจ 4 รอบแยกหัวข้อ, ค่าเริ่มต้น (lite) ตรวจรอบเดียวครบทุกหัวข้อ ทั้งสองแบบมี analyzer และรอบตรวจซ้ำ"""
+    if aspects is None:
+        aspects = ASPECTS if thorough else [ASPECT_ALL]
     prof = profiles.load(profile_name)
     model = model or prof.model or config.MODEL
     report = Report()
@@ -315,7 +321,7 @@ def review(code_prompt: str, *, py_files: list[Path] | None = None, snippet: tup
     if report.analyzer_ran:
         ev("step", f"analyzer พบ {len(report.findings)} รายการ")
 
-    for aspect in aspects or ASPECTS:
+    for aspect in aspects:
         found = model_pass(prof, model, code_prompt, aspect, report.findings)
         report.passes += 1
         ev("step", f"รอบ {aspect[1]}: {len(found)} finding")

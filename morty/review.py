@@ -75,6 +75,7 @@ def main() -> None:
     parser.add_argument("--model", default=None, help="ทับโมเดลของ profile เช่น qwen3:14b")
     parser.add_argument("--focus", default=None, help="ประเด็นที่อยากให้เน้น เช่น ความปลอดภัย")
     parser.add_argument("--quick", action="store_true", help="ตรวจรอบเดียวแบบเร็ว ไม่ใช้ analyzer และไม่ตรวจซ้ำ")
+    parser.add_argument("--thorough", action="store_true", help="ตรวจ 4 รอบแยกหัวข้อ (ช้ากว่าราว 2.5 เท่า)")
     args = parser.parse_args()
 
     console = Console(stderr=True)
@@ -114,12 +115,12 @@ def main() -> None:
             snippet = (sections[0][1], "python")
         report = reviewpipe.review(
             prompt, py_files=py_files or None, snippet=snippet, model=model, profile_name=prof.name,
-            on_event=lambda kind, msg: console.print(f"[dim]• {msg}[/]"),
+            on_event=lambda kind, msg: console.print(f"[dim]• {msg}[/]"), thorough=args.thorough,
         )
         answer = report.render()
         sys.stdout.write(answer + "\n")
         meta = {
-            "mode": "pipeline", "passes": report.passes, "dropped": report.verified_dropped,
+            "mode": "thorough" if args.thorough else "pipeline", "passes": report.passes, "dropped": report.verified_dropped,
             "analyzer": report.analyzer_ran,
             "findings": {s: sum(1 for f in report.findings if f.severity == s) for s in ("bug", "risk", "style")},
         }
