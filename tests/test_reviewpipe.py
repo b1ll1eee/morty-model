@@ -17,8 +17,17 @@ def test_merge_dedupes_same_line_and_keeps_worst():
         rp.Finding("risk", "ไม่มีเลขบรรทัด", "model:security"),
     ]
     out = rp.merge(fs)
+    # analyzer กับโมเดลแยกถัง: บรรทัด 4 มีทั้ง F821 และบั๊กจากโมเดล, บรรทัด 7 มี risk จาก analyzer และ style จากโมเดล
     assert [(f.severity, f.source) for f in out] == [
-        ("bug", "ruff:F821"), ("risk", "ruff:S605"), ("style", "model:style"), ("risk", "model:security")]
+        ("bug", "ruff:F821"), ("bug", "model:correctness"), ("risk", "ruff:S605"),
+        ("style", "model:style"), ("style", "model:style"), ("risk", "model:security")]
+
+
+def test_merge_collapses_same_line_within_model_bucket():
+    fs = [rp.Finding("style", "บรรทัด 7: a", "model:style"), rp.Finding("bug", "บรรทัด 7: b", "model:correctness"),
+          rp.Finding("bug", "บรรทัด 7: c", "model:robustness")]
+    out = rp.merge(fs)
+    assert [(f.severity, f.text) for f in out] == [("bug", "บรรทัด 7: b")]
 
 
 def test_verify_regex():

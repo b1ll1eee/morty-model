@@ -72,7 +72,9 @@ class Finding:
         (analyzer ถูกใส่ก่อนจึงชนะ โมเดลมักบรรยายปัญหาเดียวกันด้วยถ้อยคำต่างกัน)"""
         m = re.search(r"(\d+)", self.text)
         line = m.group(1) if m else "?"
-        return f"{line}:{self.severity}"
+        # analyzer กับโมเดลแยกถังกัน: F821 บนบรรทัดหนึ่งต้องไม่กลบบั๊กคนละเรื่องที่โมเดลพบบนบรรทัดเดียวกัน
+        bucket = "tool" if self.source.startswith(("ruff", "bandit")) else "model"
+        return f"{line}:{self.severity}:{bucket}"
 
 
 @dataclass
@@ -277,11 +279,13 @@ def merge(findings: list[Finding]) -> list[Finding]:
     seen: dict[str, Finding] = {}
     for f in findings:
         seen.setdefault(f.key(), f)
-    by_line: dict[str, list[Finding]] = {}
+    # ภายในถังเดียวกัน บรรทัดเดียวกันเก็บเฉพาะระดับที่หนักที่สุด (โมเดลมักพูดเรื่องเดียวกันซ้ำต่างระดับ)
+    by_group: dict[tuple[str, str], list[Finding]] = {}
     for f in seen.values():
-        by_line.setdefault(f.key().split(":")[0], []).append(f)
+        line, _, bucket = f.key().split(":")
+        by_group.setdefault((line, bucket), []).append(f)
     out: list[Finding] = []
-    for line, group in by_line.items():
+    for (line, _), group in by_group.items():
         if line == "?":
             out.extend(group)
             continue
