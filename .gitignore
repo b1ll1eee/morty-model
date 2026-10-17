@@ -12,3 +12,5 @@ evals/results/
 .claude/skills/
 logs/
 reports/
+*.egg-info/
+build/

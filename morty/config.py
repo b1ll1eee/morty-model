@@ -4,7 +4,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+# โฟลเดอร์โปรเจกต์ (เก็บ .env, data/, evals/, logs/, reports/) ค่าเริ่มต้นคือโฟลเดอร์ที่มีแพ็กเกจนี้
+# ถ้าติดตั้งแบบไม่ใช่ editable ให้ตั้ง MORTY_HOME ชี้ไปที่โฟลเดอร์โปรเจกต์
+ROOT = Path(os.getenv("MORTY_HOME") or Path(__file__).resolve().parent.parent)
 load_dotenv(ROOT / ".env")
 
 MODEL = os.getenv("MORTY_MODEL", "qwen2.5:7b")

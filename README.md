@@ -28,20 +28,27 @@ morty-dev> อ่าน 4 ค่า: MORTY_MODEL, OLLAMA_HOST, MORTY_SYSTEM_PROM
 brew install ollama && ollama serve &
 ollama pull qwen2.5:7b && ollama pull nomic-embed-text
 
-python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3.12 -m venv .venv && .venv/bin/pip install -e .      # ติดตั้งเป็นคำสั่ง morty
+ln -sf "$PWD/.venv/bin/morty" ~/.local/bin/morty             # ให้เรียก morty ได้จากทุกโฟลเดอร์ (ต้องมี ~/.local/bin ใน PATH)
 cp .env.example .env
 
-.venv/bin/python -m morty.chat --profile dev
+cd โปรเจกต์ของคุณ && morty                                   # เริ่มแชทกับ dev ได้เลย
 ```
+
+ติดตั้งบนเครื่องอื่นแบบ global เหมือน `npm i -g` ใช้ `pipx install /path/to/morty-model` แล้วตั้ง `MORTY_HOME` ชี้ไปโฟลเดอร์โปรเจกต์
 
 ## ใช้งานประจำวัน
 
 ```bash
-.venv/bin/python -m morty.chat                        # แชทกับ Morty ตัวกลาง
-.venv/bin/python -m morty.chat --profile dev          # ปรึกษาเรื่องโค้ด
-git diff | .venv/bin/python -m morty.review           # ให้ reviewer ตรวจ diff ก่อน commit (โมเดล + ruff/bandit)
-.venv/bin/python -m morty.review app.py --pipeline    # เพิ่มรอบตรวจซ้ำทุก finding เมื่อ false positive รบกวน
+morty                          # แชทกับ dev ในโฟลเดอร์ปัจจุบัน (เห็นไฟล์ ค้นโค้ด แก้ไฟล์ได้เมื่ออนุญาต)
+morty chat --profile general   # ถามตอบทั่วไป
+git diff | morty review        # ให้ reviewer ตรวจ diff ก่อน commit (โมเดล + ruff/bandit)
+morty review app.py --pipeline # เพิ่มรอบตรวจซ้ำทุก finding เมื่อ false positive รบกวน
+morty dash                     # dashboard สด refresh เองทุก 30 วินาที
+morty --help                   # คำสั่งทั้งหมด
 ```
+
+ทุกคำสั่งยังเรียกแบบเดิมได้ด้วย `.venv/bin/python -m morty.<โมดูล>`
 
 `dev` มองเห็นโฟลเดอร์ที่คุณรันคำสั่ง (เปลี่ยนด้วย `--workspace`) อ่านไฟล์ ค้นโค้ด ดู git ได้เอง
 ถ้าจะแก้ไฟล์ รันคำสั่ง หรือรันโค้ด Python จะแสดง diff แล้วถามคุณก่อนทุกครั้ง ปิดเครื่องมือได้ด้วย `--no-tools`
@@ -74,13 +81,14 @@ flowchart TB
 และทุกการเปลี่ยนแปลง ไม่ว่าแก้ prompt เพิ่มเอกสาร หรือสลับโมเดล ต้องผ่าน eval ชุดเดิมก่อน
 
 ```bash
-.venv/bin/python -m morty.log bad                                       # ดูคำตอบที่ติดธงไว้
-.venv/bin/python -m morty.log to-eval dev >> evals/dev.jsonl            # แปลงเป็นข้อสอบ แล้วเติมคำตอบที่คาดหวัง
-.venv/bin/python -m morty.evaluate dev                                  # 12 ข้อ ผ่านกี่ข้อ ใช้เวลาเท่าไร
-.venv/bin/python -m morty.evaluate dev --models qwen2.5:7b,qwen3:14b    # เทียบโมเดลในรอบเดียว
-.venv/bin/python -m morty.evaluate dev --judge --repeat 3               # ให้กรรมการให้คะแนน 0-2 และวัดความนิ่ง
-.venv/bin/python -m morty.dashboard --serve --open                      # dashboard สด: สร้างใหม่ทุกคำขอ หน้า refresh เองทุก 30 วินาที
+morty log bad                                  # ดูคำตอบที่ติดธงไว้
+morty log to-eval dev >> evals/dev.jsonl       # แปลงเป็นข้อสอบ แล้วเติมคำตอบที่คาดหวัง
+morty eval dev                                 # ผ่านกี่ข้อ ใช้เวลาเท่าไร
+morty eval dev --models qwen2.5:7b,qwen3:14b   # เทียบโมเดลในรอบเดียว
+morty eval dev --judge --repeat 3              # ให้กรรมการให้คะแนน 0-2 และวัดความนิ่ง
 ```
+
+คำสั่ง eval, rag, log ต้องรันจากโฟลเดอร์ morty-model (หรือตั้ง `MORTY_HOME`) เพราะอ่านเขียน `evals/`, `data/`, `logs/` ของโปรเจกต์
 
 ผลล่าสุด (17 ต.ค. 2026)
 
@@ -96,8 +104,8 @@ RAG ทำให้ dev ขึ้นจาก 9/12 เป็น 12/12 ในค�
 ## เพิ่ม expert ของคุณเอง
 
 1. สร้าง `morty/profiles/<ชื่อ>.toml` ใส่ `title`, `system` และ `[options]` (คัดลอกจาก `dev.toml` ได้)
-2. ถ้าอยากให้รู้เอกสารของคุณ ใส่ไฟล์ลง `data/<ชื่อ>/` แล้วรัน `python -m morty.rag index <ชื่อ>`
-3. เขียน `evals/<ชื่อ>.jsonl` สัก 10 ข้อ แล้วรัน `python -m morty.evaluate <ชื่อ>`
+2. ถ้าอยากให้รู้เอกสารของคุณ ใส่ไฟล์ลง `data/<ชื่อ>/` แล้วรัน `morty rag index <ชื่อ>`
+3. เขียน `evals/<ชื่อ>.jsonl` สัก 10 ข้อ แล้วรัน `morty eval <ชื่อ>`
 
 ไม่ต้องแก้โค้ด Python แม้แต่บรรทัดเดียว
 
@@ -105,7 +113,8 @@ RAG ทำให้ dev ขึ้นจาก 9/12 เป็น 12/12 ในค�
 
 ```
 morty/
-  llm.py          ชั้นเดียวที่คุยกับโมเดล ย้ายไป Claude API ได้โดยแก้ไฟล์นี้ไฟล์เดียว
+  cli.py          คำสั่ง morty <chat|review|dash|eval|rag|log>
+  llm.py          ชั้นเดียวที่คุยกับโมเดล
   profiles/       general.toml  dev.toml  reviewer.toml
   rag.py          ทำดัชนีและค้นเอกสารใน data/<profile>/
   tools.py        เครื่องมือที่โมเดลเรียกได้ ภายใน workspace เท่านั้น
