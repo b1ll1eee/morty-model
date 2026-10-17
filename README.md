@@ -38,7 +38,7 @@ LoRA fine-tune เป็นทางแยกที่เปิดเมื่�
 
 - macOS บน Apple Silicon (ทดสอบบน MacBook Pro M4 RAM 24 GB)
 - Python 3.12 ขึ้นไป
-- พื้นที่ว่างประมาณ 15 GB สำหรับโมเดล
+- พื้นที่ว่างประมาณ 20 GB สำหรับโมเดล (เครื่องนี้เก็บไว้ที่ `/Volumes/DEV/local-model` นอก repo)
 
 ## ติดตั้งครั้งแรก
 
@@ -50,13 +50,16 @@ tar -xzf /tmp/ollama.tgz -C ~/.local/ollama
 ln -sf ~/.local/ollama/ollama ~/.local/bin/ollama
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 
-# 2) เปิด server แล้วดึงโมเดล
+# 2) เลือกที่เก็บโมเดล (ค่าเริ่มต้นคือ ~/.ollama/models) โปรเจกต์นี้เก็บไว้บนดิสก์ DEV
+echo 'export OLLAMA_MODELS="/Volumes/DEV/local-model"' >> ~/.zshrc && source ~/.zshrc
+
+# 3) เปิด server แล้วดึงโมเดล
 ollama serve &
 ollama pull qwen2.5:7b          # โมเดลแชท ขนาดเล็ก ตอบเร็ว
 ollama pull qwen3:14b           # โมเดลแชท ฉลาดกว่า ใช้ RAM ราว 10 GB
 ollama pull nomic-embed-text    # โมเดล embedding สำหรับทำ RAG
 
-# 3) ติดตั้ง Python dependencies
+# 4) ติดตั้ง Python dependencies
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env
@@ -126,7 +129,7 @@ profile คือชั้นที่ซ้อนบนโมเดลกลา
 ตอนถาม ระบบจะค้นท่อนที่คล้ายคำถามที่สุด `top_k` ท่อนที่คะแนนถึง `min_score` แล้วแนบไปกับคำถามพร้อมหมายเลขอ้างอิง
 หน้าแชทจะแสดงบรรทัด `อ้างอิง: ...` ว่าใช้ท่อนไหนบ้าง ถ้าไม่มีท่อนที่ถึงเกณฑ์จะถามโมเดลตามปกติ
 
-ค่าเริ่มต้นของ dev คือ `top_k = 4`, `min_score = 0.55` (nomic ให้คะแนนพื้นราว 0.45 ถึง 0.50 แม้เนื้อหาไม่เกี่ยวกัน)
+ค่าเริ่มต้นของ dev คือ `top_k = 4`, `min_score = 0.6` (nomic ให้คะแนนพื้นราว 0.45 ถึง 0.55 แม้เนื้อหาไม่เกี่ยวกัน)
 ใช้ Python ล้วนคำนวณ cosine similarity พอสำหรับเอกสารหลักร้อยถึงหลักพันท่อน ถ้าใหญ่กว่านั้นค่อยย้ายไป vector DB
 
 `data/dev/morty-project.md` เป็นไฟล์ตัวอย่างเดียวที่ commit ไว้ เพื่อให้ morty-dev ตอบคำถามเกี่ยวกับโปรเจกต์นี้ได้

@@ -26,5 +26,5 @@
 - โมเดลเริ่มต้นคือ `qwen2.5:7b` เปลี่ยนได้ที่ `MORTY_MODEL` ใน `.env` หรือ `model =` ใน profile
 - ทุกครั้งที่แก้ system prompt หรือสลับโมเดล ต้องรัน `python -m morty.evaluate dev` ซ้ำ และคะแนนต้องไม่ต่ำกว่าเดิม
 - ไฟล์ `.env` และโฟลเดอร์ `evals/results/` ไม่ commit ส่วน `data/` ไม่ commit ยกเว้นไฟล์ตัวอย่างนี้
-- ค่า RAG ของ dev: `top_k = 4`, `min_score = 0.55` ปรับได้ใน `morty/profiles/dev.toml`
+- ค่า RAG ของ dev: `top_k = 4`, `min_score = 0.6` ปรับได้ใน `morty/profiles/dev.toml`
 - embedding ใช้โมเดล `nomic-embed-text` ซึ่งต้องใส่ prefix `search_document:` ตอนทำดัชนี และ `search_query:` ตอนค้น

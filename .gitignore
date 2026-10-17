@@ -9,3 +9,4 @@ data/**
 evals/results/
 .DS_Store
 .claude/autoharness/
+.claude/skills/

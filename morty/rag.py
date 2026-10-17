@@ -29,7 +29,7 @@ TEXT_SUFFIXES = {
 }
 CHUNK_CHARS = 1200   # nomic-embed-text รับได้ราว 2048 token ท่อนละ ~1200 ตัวอักษรปลอดภัยทั้งไทยและโค้ด
 OVERLAP_CHARS = 150
-DEFAULTS = {"top_k": 4, "min_score": 0.55}
+DEFAULTS = {"top_k": 4, "min_score": 0.6}
 
 
 @dataclass
@@ -174,8 +174,8 @@ def augment(profile: profiles.Profile, question: str) -> tuple[str, list[Hit]]:
         return question, []
     refs = "\n\n".join(f"[{i + 1}] {h.path} (ท่อน {h.chunk + 1})\n{h.text}" for i, h in enumerate(hits))
     prompt = (
-        "ข้อมูลอ้างอิงจากเอกสารในโปรเจกต์ ใช้ตอบเมื่อเกี่ยวข้องและอ้างหมายเลขอ้างอิง "
-        "ถ้าไม่เกี่ยวข้องให้ตอบจากความรู้ทั่วไปและบอกว่าไม่พบในเอกสาร\n\n"
+        "ข้อมูลอ้างอิงจากเอกสารในโปรเจกต์ ถ้าเกี่ยวข้องกับคำถามให้ใช้ตอบและอ้างหมายเลข [n] "
+        "ถ้าไม่เกี่ยวข้องให้ตอบจากความรู้ทั่วไปตามปกติ โดยไม่ต้องพูดถึงเอกสารเหล่านี้\n\n"
         f"{refs}\n\n---\nคำถาม: {question}"
     )
     return prompt, hits

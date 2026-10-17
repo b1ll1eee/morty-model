@@ -14,16 +14,27 @@ Message = dict[str, str]  # {"role": "system" | "user" | "assistant", "content":
 _client = ollama.Client(host=config.OLLAMA_HOST)
 
 
+def _split(options: dict) -> tuple[dict, dict]:
+    """แยกพารามิเตอร์ระดับคำขอ (เช่น think) ออกจาก options ของโมเดล (temperature, num_ctx ...)"""
+    request = {}
+    if "think" in options:
+        # โมเดลตระกูล qwen3 มีโหมดคิดยาว think=False ปิดเพื่อให้ตอบเร็ว โมเดลอื่นเพิกเฉยค่านี้
+        request["think"] = options.pop("think")
+    return request, options
+
+
 def chat(messages: list[Message], model: str | None = None, **options) -> str:
     """ส่งบทสนทนาไปที่โมเดล แล้วคืนคำตอบทั้งก้อน"""
-    resp = _client.chat(model=model or config.MODEL, messages=messages, options=options)
+    request, options = _split(dict(options))
+    resp = _client.chat(model=model or config.MODEL, messages=messages, options=options, **request)
     return resp["message"]["content"]
 
 
 def chat_stream(messages: list[Message], model: str | None = None, **options) -> Iterator[str]:
     """เหมือน chat() แต่ทยอยคืนข้อความทีละชิ้นขณะโมเดลกำลังพิมพ์"""
+    request, options = _split(dict(options))
     stream = _client.chat(
-        model=model or config.MODEL, messages=messages, options=options, stream=True
+        model=model or config.MODEL, messages=messages, options=options, stream=True, **request
     )
     for chunk in stream:
         yield chunk["message"]["content"]

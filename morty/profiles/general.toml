@@ -7,4 +7,5 @@ system = """
 """
 
 [options]
+think = false      # ปิดโหมดคิดยาวของโมเดลตระกูล qwen3 (โมเดลอื่นไม่สนใจค่านี้)
 temperature = 0.7
