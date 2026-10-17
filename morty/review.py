@@ -5,7 +5,9 @@
          .venv/bin/python -m morty.review --diff                   # เท่ากับ git diff ของไฟล์ที่ยังไม่ staged
          .venv/bin/python -m morty.review --diff --staged          # เฉพาะที่ staged แล้ว
          .venv/bin/python -m morty.review app.py --model qwen3:14b --focus "ความปลอดภัย"
+         .venv/bin/python -m morty.review app.py --quick                  # รอบเดียว เร็ว ไม่มี analyzer/ตรวจซ้ำ
 
+ค่าเริ่มต้นคือ pipeline: ruff + bandit → ตรวจ 4 รอบแยกหัวข้อ → ตรวจซ้ำทุก finding → รวมผล (ดู reviewpipe.py)
 ไฟล์จะถูกใส่เลขบรรทัดให้ เพื่อให้ reviewer อ้างอิงบรรทัดได้แม่นยำ
 """
 from __future__ import annotations
@@ -18,7 +20,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from . import config, llm, log, profiles
+from . import config, llm, log, profiles, reviewpipe
 
 MAX_CHARS = 60_000  # เกินนี้โมเดล 7b เริ่มลืมส่วนต้น ควรแบ่งไฟล์
 
@@ -72,6 +74,7 @@ def main() -> None:
     parser.add_argument("--profile", default="reviewer", choices=profiles.names())
     parser.add_argument("--model", default=None, help="ทับโมเดลของ profile เช่น qwen3:14b")
     parser.add_argument("--focus", default=None, help="ประเด็นที่อยากให้เน้น เช่น ความปลอดภัย")
+    parser.add_argument("--quick", action="store_true", help="ตรวจรอบเดียวแบบเร็ว ไม่ใช้ analyzer และไม่ตรวจซ้ำ")
     args = parser.parse_args()
 
     console = Console(stderr=True)
@@ -84,22 +87,39 @@ def main() -> None:
 
     names = ", ".join(s[0] for s in sections)
     console.print(f"[bold green]{prof.title}[/] ตรวจ [cyan]{names}[/] ด้วย [magenta]{model}[/]")
-    messages: list[llm.Message] = [
-        {"role": "system", "content": prof.system},
-        {"role": "user", "content": prompt},
-    ]
-    parts_out: list[str] = []
     t0 = time.perf_counter()
-    try:
-        for piece in llm.chat_stream(messages, model=model, **dict(prof.options)):
-            parts_out.append(piece)
-            sys.stdout.write(piece)
-            sys.stdout.flush()
-    except KeyboardInterrupt:
-        pass
-    sys.stdout.write("\n")
+    if args.quick:
+        messages: list[llm.Message] = [
+            {"role": "system", "content": prof.system},
+            {"role": "user", "content": prompt},
+        ]
+        parts_out: list[str] = []
+        try:
+            for piece in llm.chat_stream(messages, model=model, **dict(prof.options)):
+                parts_out.append(piece)
+                sys.stdout.write(piece)
+                sys.stdout.flush()
+        except KeyboardInterrupt:
+            pass
+        sys.stdout.write("\n")
+        answer = "".join(parts_out)
+    else:
+        py_files = [Path(p) for p in args.paths if p.endswith(".py")]
+        if args.diff:
+            cmd = ["git", "diff", "--name-only"] + (["--staged"] if args.staged else [])
+            changed = subprocess.run(cmd, capture_output=True, text=True, cwd=config.ROOT).stdout.split()
+            py_files += [config.ROOT / f for f in changed if f.endswith(".py") and (config.ROOT / f).is_file()]
+        snippet = None
+        if not py_files and sections and sections[0][0].startswith("stdin") and not sections[0][0].endswith("(diff)"):
+            snippet = (sections[0][1], "python")
+        report = reviewpipe.review(
+            prompt, py_files=py_files or None, snippet=snippet, model=model, profile_name=prof.name,
+            on_event=lambda kind, msg: console.print(f"[dim]• {msg}[/]"),
+        )
+        answer = report.render()
+        sys.stdout.write(answer + "\n")
     event_id = log.record(
-        source="review", profile=prof.name, model=model, question=prompt, answer="".join(parts_out),
+        source="review", profile=prof.name, model=model, question=prompt, answer=answer,
         seconds=time.perf_counter() - t0, refs=[s[0] for s in sections],
     )
     console.print(f"[dim]บันทึก log {event_id}  ถ้าผลไม่ดี: python -m morty.log rate {event_id} bad \"เหตุผล\"[/]")

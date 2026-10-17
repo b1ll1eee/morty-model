@@ -110,7 +110,7 @@ def build_index(data_dir: Path, verbose: bool = True) -> dict:
         if not chunks:
             continue
         vecs = llm.embed([f"search_document: {c}" for c in chunks], model=EMBED_MODEL)
-        for entry, v in zip(files[rel]["chunks"], vecs):
+        for entry, v in zip(files[rel]["chunks"], vecs, strict=False):
             entry["vec"] = [round(x, 6) for x in v]
         if verbose:
             print(f"ทำดัชนี {rel}: {len(chunks)} ท่อน")
@@ -126,7 +126,7 @@ def build_index(data_dir: Path, verbose: bool = True) -> dict:
 # ---------- ค้นหา ----------
 
 def _cos(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0

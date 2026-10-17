@@ -24,9 +24,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from pathlib import Path
-
-from . import agent, config, llm, profiles
+from . import agent, config, llm, profiles, reviewpipe
 
 EVALS_DIR = config.ROOT / "evals"
 THAI = re.compile(r"[฀-๿]")
@@ -62,8 +60,18 @@ def ask_with_tools(profile_name: str, model: str, question: str, allow_run: bool
     return answer
 
 
+FENCE_RE = re.compile(r"```(\w*)\n(.*?)```", re.S)
+
+
+def ask_with_pipeline(profile_name: str, model: str, question: str) -> str:
+    m = FENCE_RE.search(question)
+    snippet = (m.group(2), m.group(1).lower() or "python") if m else None
+    report = reviewpipe.review(question, snippet=snippet, model=model, profile_name=profile_name)
+    return report.render()
+
+
 def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bool, console: Console,
-        use_tools: bool = False, allow_run: bool = False) -> list[dict]:
+        use_tools: bool = False, allow_run: bool = False, use_pipeline: bool = False) -> list[dict]:
     """รัน eval หนึ่งรอบด้วยโมเดลเดียว พิมพ์ตาราง และคืน record ต่อข้อ"""
     console.print(
         f"eval [magenta]{profile_name}[/] {len(cases)} ข้อ ด้วยโมเดล [cyan]{model}[/] "
@@ -76,9 +84,12 @@ def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bo
     table.add_column("หมายเหตุ")
 
     records: list[dict] = []
+    digest = llm.model_digest(model)
     for case in cases:
         t0 = time.perf_counter()
-        if use_tools:
+        if use_pipeline:
+            answer = ask_with_pipeline(profile_name, model, case["q"])
+        elif use_tools:
             answer = ask_with_tools(profile_name, model, case["q"], allow_run)
         else:
             answer = llm.ask(case["q"], profile=profile_name, model=model, rag=rag)
@@ -88,7 +99,8 @@ def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bo
         table.add_row(
             case["id"], "[green]ผ่าน[/]" if ok else "[red]ตก[/]", f"{dt:.1f}s", "; ".join(fails)
         )
-        records.append({**case, "model": model, "rag": rag, "answer": answer, "pass": ok, "fails": fails, "seconds": round(dt, 2)})
+        records.append({**case, "model": model, "model_digest": digest, "rag": rag, "answer": answer,
+                        "pass": ok, "fails": fails, "seconds": round(dt, 2)})
         if show:
             console.rule(f"{case['id']}  {'ผ่าน' if ok else 'ตก'}")
             console.print(f"[blue]ถาม:[/] {case['q']}")
@@ -109,7 +121,8 @@ def summary(records: list[dict]) -> dict:
     passed = sum(r["pass"] for r in records)
     secs = [r["seconds"] for r in records]
     return {
-        "model": records[0]["model"], "rag": records[0]["rag"], "cases": n, "passed": passed,
+        "model": records[0]["model"], "model_digest": records[0].get("model_digest"),
+        "rag": records[0]["rag"], "cases": n, "passed": passed,
         "score": round(passed / n, 3), "avg_seconds": round(sum(secs) / n, 1), "max_seconds": max(secs),
         "failed_ids": [r["id"] for r in records if not r["pass"]],
     }
@@ -125,6 +138,7 @@ def main() -> None:
     parser.add_argument("--set", default=None, help="ชื่อชุด eval ใน evals/ (ค่าเริ่มต้น = ชื่อ profile) เช่น dev-tools")
     parser.add_argument("--tools", action="store_true", help="รันผ่านวงจรเครื่องมือ (workspace = โฟลเดอร์โปรเจกต์)")
     parser.add_argument("--allow-run", action="store_true", help="อนุญาต run_command/run_python ระหว่าง eval")
+    parser.add_argument("--pipeline", action="store_true", help="reviewer: ใช้ pipeline (analyzer, หลายรอบ, ตรวจซ้ำ) แทนรอบเดียว")
     args = parser.parse_args()
 
     console = Console()
@@ -141,9 +155,10 @@ def main() -> None:
     summaries: list[dict] = []
     for model in models:
         records = run(args.profile, model, cases, rag=rag, show=args.show, console=console,
-                      use_tools=args.tools, allow_run=args.allow_run)
+                      use_tools=args.tools, allow_run=args.allow_run, use_pipeline=args.pipeline)
         safe = model.replace(":", "_").replace("/", "_")
-        out = out_dir / f"{args.set or args.profile}-{tag}{'-tools' if args.tools else ''}-{safe}-{stamp}.jsonl"
+        mode = "-tools" if args.tools else ("-pipeline" if args.pipeline else "")
+        out = out_dir / f"{args.set or args.profile}-{tag}{mode}-{safe}-{stamp}.jsonl"
         out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n", encoding="utf-8")
         console.print(f"[dim]บันทึกผลที่ {out.relative_to(config.ROOT)}[/]\n")
         summaries.append(summary(records))

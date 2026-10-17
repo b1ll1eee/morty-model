@@ -15,10 +15,9 @@ profile ที่เปิด [tools] (เช่น dev) จะอ่านไ�
 import argparse
 import sys
 import time
+from pathlib import Path
 
 from rich.console import Console
-
-from pathlib import Path
 
 from . import agent, config, llm, log, profiles, rag
 

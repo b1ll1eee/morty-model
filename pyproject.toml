@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = [".venv", "data", "evals", "logs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+ignore = ["E501"]  # บรรทัดยาวในข้อความภาษาไทยและ prompt
+
+[tool.ruff.lint.isort]
+known-first-party = ["morty"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

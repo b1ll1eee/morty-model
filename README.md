@@ -15,7 +15,7 @@ morty-dev> อ่าน 4 ค่า: MORTY_MODEL, OLLAMA_HOST, MORTY_SYSTEM_PROM
 |---|---|---|
 | 💬 | `general` | ถามตอบทั่วไป สรุปความ ร่างข้อความ |
 | 🛠 | `dev` | เขียนโค้ด แก้บั๊ก อ่านไฟล์และค้นโค้ดในโปรเจกต์ของคุณเอง รันคำสั่งได้เมื่อคุณอนุญาต |
-| 🔍 | `reviewer` | ตรวจโค้ดหรือ `git diff` หาบั๊กและช่องโหว่ก่อน merge |
+| 🔍 | `reviewer` | ตรวจโค้ดหรือ `git diff` ก่อน merge: analyzer + ตรวจ 4 รอบ + ตรวจซ้ำทุก finding |
 
 ทุก profile ใช้โมเดลกลางเดียวกัน (`qwen2.5:7b` ราว 5 GB) ต่างกันที่ system prompt, พารามิเตอร์ และเอกสารที่ค้นมาใส่ใน context
 ยกเว้น `reviewer` ที่ eval บอกว่าคุ้มจะใช้ `qwen3:14b` เพราะจับบั๊กที่ 7b พลาดได้ และงาน review ไม่ต้องการความเร็ว
@@ -39,8 +39,8 @@ cp .env.example .env
 ```bash
 .venv/bin/python -m morty.chat                        # แชทกับ Morty ตัวกลาง
 .venv/bin/python -m morty.chat --profile dev          # ปรึกษาเรื่องโค้ด
-git diff | .venv/bin/python -m morty.review           # ให้ reviewer ตรวจ diff ก่อน commit
-.venv/bin/python -m morty.review app.py --focus ความปลอดภัย
+git diff | .venv/bin/python -m morty.review           # ให้ reviewer ตรวจ diff ก่อน commit (pipeline เต็ม)
+.venv/bin/python -m morty.review app.py --quick       # รอบเดียว เร็วกว่า 5 เท่า แต่หยาบกว่า
 ```
 
 `dev` มองเห็นโฟลเดอร์ที่คุณรันคำสั่ง (เปลี่ยนด้วย `--workspace`) อ่านไฟล์ ค้นโค้ด ดู git ได้เอง
@@ -108,6 +108,7 @@ morty/
   agent.py        วงจรเรียกเครื่องมือจนได้คำตอบ
   chat.py         แชท CLI
   review.py       ส่งไฟล์หรือ diff ให้ reviewer
+  reviewpipe.py   pipeline ตรวจโค้ด: ruff + bandit → 4 รอบ → ตรวจซ้ำ → รวมผล
   evaluate.py     รัน eval และเทียบโมเดล
   log.py          บันทึกการใช้งาน ให้คะแนน และแปลงเคสแย่เป็น eval
 evals/            คำถามทดสอบต่อ profile

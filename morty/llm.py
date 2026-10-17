@@ -89,3 +89,14 @@ def embed(texts: list[str], model: str = "nomic-embed-text") -> list[list[float]
 def list_models() -> list[str]:
     """รายชื่อโมเดลที่ดาวน์โหลดไว้ในเครื่อง"""
     return [m["model"] for m in _client.list()["models"]]
+
+
+def model_digest(name: str) -> str | None:
+    """digest ของ weight ที่ติดตั้งอยู่ ใช้บันทึกคู่กับผล eval เพื่อให้รู้ว่าวัดกับไฟล์รุ่นไหน"""
+    try:
+        for m in _client.list()["models"]:
+            if m["model"] in (name, f"{name}:latest"):
+                return (m.get("digest") or "")[:12] or None
+    except Exception:  # noqa: BLE001
+        return None
+    return None
