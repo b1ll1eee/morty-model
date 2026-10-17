@@ -55,6 +55,22 @@ from morty import llm
 llm.ask("อ่านไฟล์ JSON ใน Python ยังไง", profile="dev")
 ```
 
+## ใช้จาก Claude Code
+
+โปรเจกต์นี้มี MCP server (`.mcp.json`) ให้ Claude Code เรียกโมเดลของ Morty เป็นเครื่องมือได้เอง
+เปิด Claude Code ในโฟลเดอร์นี้แล้วอนุมัติ server ชื่อ `morty` ครั้งเดียว จากนั้น Claude จะเห็น
+
+| เครื่องมือ | ใช้ทำอะไร |
+|---|---|
+| `morty_ask` | ถาม Morty ด้วย profile ใดก็ได้ ข้อมูลไม่ออกนอกเครื่อง |
+| `morty_review` | ให้ reviewer ตรวจโค้ด ไฟล์ หรือ `git diff` ก่อน Claude อ่านเอง |
+| `morty_search_docs` | ค้นเอกสารภายในใน `data/dev/` |
+| `morty_profiles` | ดูว่ามี profile อะไร ใช้โมเดลไหน |
+
+ลองพิมพ์ใน Claude Code ว่า "ใช้ morty_review ตรวจ diff ปัจจุบัน" หรือ "ถาม morty ว่าโปรเจกต์นี้เพิ่ม expert ยังไง"
+ใช้จากโปรเจกต์อื่นได้ด้วย `claude mcp add morty /Volumes/DEV/morty-model/bin/morty-mcp`
+การเรียกจาก Claude ถูกบันทึกใน log เป็น source `mcp` จึงแยกดูใน dashboard ได้
+
 ## ทำงานอย่างไร
 
 ```mermaid
@@ -114,6 +130,8 @@ morty/
   evaluate.py     รัน eval และเทียบโมเดล
   log.py          บันทึกการใช้งาน ให้คะแนน และแปลงเคสแย่เป็น eval
   dashboard.py    สร้าง reports/dashboard.html จาก log + ผล eval + สถานะ Ollama (ในเครื่องล้วน)
+  mcp_server.py   MCP server ให้ Claude Code เรียก morty_ask / morty_review / morty_search_docs
+bin/morty-mcp     ตัวเปิด MCP server ด้วย venv ของโปรเจกต์ (อ้างใน .mcp.json)
 evals/            คำถามทดสอบต่อ profile
 logs/             บันทึกการใช้งานจริงรายวัน (ไม่ commit)
 data/dev/         เอกสารของทีมสำหรับ RAG (ไม่ commit)

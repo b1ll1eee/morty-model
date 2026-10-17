@@ -221,6 +221,23 @@ profile ที่มี `[tools] enabled = true` จะได้เครื่�
 dev จึงยังใช้ 7b เป็นค่าเริ่มต้นเพื่อความเร็ว และแนะนำ `--model qwen3:14b` เมื่อต้องให้มันอ่านโค้ดจริงจัง
 ข้อจำกัดที่รู้: โมเดลมักหยุดที่ผลค้นหาแรกที่ดูเกี่ยว (เช่นคอมเมนต์) แทนที่จะหา implementation ต่อ เคสนี้ควรกลายเป็น eval เพิ่มเมื่อเจอในงานจริง
 
+## MCP server สำหรับ Claude Code
+
+`morty/mcp_server.py` ใช้ MCP Python SDK 2.x (`MCPServer`) สื่อสารทาง stdio
+`.mcp.json` ที่ root ของโปรเจกต์ชี้ไปที่ `bin/morty-mcp` ซึ่ง cd เข้าโปรเจกต์แล้วรันด้วย `.venv` เสมอ
+Claude Code จะถามอนุมัติ server ครั้งแรกที่เปิดโฟลเดอร์นี้ จากโปรเจกต์อื่นใช้ `claude mcp add morty /Volumes/DEV/morty-model/bin/morty-mcp`
+
+| เครื่องมือ | พารามิเตอร์ | หมายเหตุ |
+|---|---|---|
+| `morty_ask` | `question`, `profile=dev`, `model`, `rag=true` | เท่ากับ `llm.ask` |
+| `morty_review` | `code` หรือ `path` หรือ `diff=true [staged]`, `language`, `model` | โหมดค่าเริ่มต้นของ reviewer: โมเดลรอบเดียว + ruff/bandit |
+| `morty_search_docs` | `query`, `profile=dev`, `top_k=4` | คืนท่อนพร้อมคะแนน ไม่กรองด้วย min_score ให้ Claude ตัดสินเอง |
+| `morty_profiles` | - | รายชื่อ profile โมเดล และสถานะ RAG/เครื่องมือ |
+
+ข้อควรระวัง: ห้ามมี `print` ลง stdout ในเส้นทางที่ server เรียก เพราะ stdout คือช่องทาง MCP (โค้ดปัจจุบันปลอดภัย; `rag index` ที่ print ไม่ได้ถูกเปิดเป็นเครื่องมือ)
+คำสั่งแรกของ `morty_ask` หลัง reviewer เพิ่งทำงาน อาจรอ 1 ถึง 2 นาทีเพราะต้องโหลด 7b กลับเข้า RAM
+instructions ของ server บอก Claude ว่า Morty เล็กกว่ามาก ให้ใช้ผลเป็นข้อมูลประกอบ ไม่ใช่คำตัดสิน
+
 ## Dashboard
 
 `python -m morty.dashboard --open` สร้าง `reports/dashboard.html` (ไม่ commit) จากข้อมูลในเครื่องทั้งหมด ไม่โหลดอะไรจากเน็ต

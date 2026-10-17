@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "morty": {
+      "command": "/Volumes/DEV/morty-model/bin/morty-mcp",
+      "args": []
+    }
+  }
+}

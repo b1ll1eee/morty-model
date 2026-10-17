@@ -1,0 +1,4 @@
+#!/bin/zsh
+# เปิด MCP server ของ Morty ด้วย venv ของโปรเจกต์ ไม่ว่า cwd ตอนเรียกจะอยู่ที่ไหน
+cd "$(dirname "$0")/.." || exit 1
+exec .venv/bin/python -m morty.mcp_server
