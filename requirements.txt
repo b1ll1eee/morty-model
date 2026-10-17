@@ -4,3 +4,4 @@ python-dotenv==1.2.4
 rich==15.0.0
 ruff==0.17.1
 bandit==1.9.4
+textual==8.2.8

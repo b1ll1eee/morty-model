@@ -40,8 +40,9 @@ cd โปรเจกต์ของคุณ && morty                          
 ## ใช้งานประจำวัน
 
 ```bash
-morty                          # แชทกับ dev ในโฟลเดอร์ปัจจุบัน (เห็นไฟล์ ค้นโค้ด แก้ไฟล์ได้เมื่ออนุญาต)
-morty chat --profile general   # ถามตอบทั่วไป
+morty                          # หน้าจอแชท (TUI) กับ dev ในโฟลเดอร์ปัจจุบัน เห็นไฟล์ ค้นโค้ด แก้ไฟล์ได้เมื่ออนุญาต
+morty ui --profile general     # TUI กับ profile อื่น
+morty chat --profile general   # แบบบรรทัดธรรมดา สำหรับ pipe หรือ script
 git diff | morty review        # ให้ reviewer ตรวจ diff ก่อน commit (โมเดล + ruff/bandit)
 morty review app.py --pipeline # เพิ่มรอบตรวจซ้ำทุก finding เมื่อ false positive รบกวน
 morty dash                     # dashboard สด refresh เองทุก 30 วินาที
@@ -50,8 +51,9 @@ morty --help                   # คำสั่งทั้งหมด
 
 ทุกคำสั่งยังเรียกแบบเดิมได้ด้วย `.venv/bin/python -m morty.<โมดูล>`
 
-`dev` มองเห็นโฟลเดอร์ที่คุณรันคำสั่ง (เปลี่ยนด้วย `--workspace`) อ่านไฟล์ ค้นโค้ด ดู git ได้เอง
-ถ้าจะแก้ไฟล์ รันคำสั่ง หรือรันโค้ด Python จะแสดง diff แล้วถามคุณก่อนทุกครั้ง ปิดเครื่องมือได้ด้วย `--no-tools`
+หน้าจอ TUI มี transcript เลื่อนดูย้อนหลัง คำตอบไหลทีละคำ บรรทัด 🔧 บอกว่าโมเดลเรียกเครื่องมืออะไร
+และกล่องขออนุญาตพร้อม diff ก่อนแก้ไฟล์หรือรันคำสั่ง (ตอบ y/n) พิมพ์ `/` เพื่อเห็นคำสั่ง Ctrl+C หยุดคำตอบ Ctrl+Q ออก
+`dev` มองเห็นโฟลเดอร์ที่คุณรันคำสั่ง (เปลี่ยนด้วย `--workspace`) อ่านไฟล์ ค้นโค้ด ดู git ได้เอง ปิดเครื่องมือได้ด้วย `--no-tools`
 ใช้เป็นตัวสำรองตอน Claude Code ใช้ไม่ได้: ทำงานแก้ไฟล์เดียวที่ระบุชัดได้ งานหลายไฟล์หลายขั้นยังไม่ควรไว้ใจ (ดูผล eval dev-edit)
 ในแชทพิมพ์ `/profile reviewer` เพื่อสลับ expert กลางคัน หรือ `/model qwen3:14b` เพื่อสลับโมเดล
 ถ้าคำตอบไหนไม่ดี พิมพ์ `/bad เหตุผล` ระบบจะติดธงไว้ใน log เพื่อนำกลับมาเป็น eval
@@ -113,7 +115,8 @@ RAG ทำให้ dev ขึ้นจาก 9/12 เป็น 12/12 ในค�
 
 ```
 morty/
-  cli.py          คำสั่ง morty <chat|review|dash|eval|rag|log>
+  cli.py          คำสั่ง morty <ui|chat|review|dash|eval|rag|log>
+  ui.py           หน้าจอแชท TUI (Textual): transcript, streaming, กล่องขออนุญาตพร้อม diff
   llm.py          ชั้นเดียวที่คุยกับโมเดล
   profiles/       general.toml  dev.toml  reviewer.toml
   rag.py          ทำดัชนีและค้นเอกสารใน data/<profile>/

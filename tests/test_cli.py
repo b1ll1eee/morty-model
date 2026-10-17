@@ -24,8 +24,8 @@ def test_dispatch_sets_argv_and_defaults(monkeypatch):
             seen["argv"] = list(sys.argv)
             return 0
 
-    monkeypatch.setattr(cli, "import_module", lambda name: Fake if name == "morty.chat" else None)
+    monkeypatch.setattr(cli, "import_module", lambda name: Fake if name in ("morty.chat", "morty.ui") else None)
     assert cli.main([]) == 0
-    assert seen["argv"] == ["morty chat", "--profile", "dev"]
+    assert seen["argv"] == ["morty ui", "--profile", "dev"]
     assert cli.main(["chat", "--profile", "general"]) == 0
     assert seen["argv"] == ["morty chat", "--profile", "general"]
