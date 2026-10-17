@@ -55,6 +55,7 @@ def main() -> None:
     parser.add_argument("profile", choices=profiles.names())
     parser.add_argument("--model", default=None, help="ทับโมเดลของ profile")
     parser.add_argument("--show", action="store_true", help="แสดงคำตอบเต็มทุกข้อ")
+    parser.add_argument("--no-rag", action="store_true", help="ปิด RAG เพื่อเทียบผลก่อนและหลัง")
     args = parser.parse_args()
 
     console = Console()
@@ -62,7 +63,10 @@ def main() -> None:
     model = args.model or prof.model or config.MODEL
     cases = load_cases(args.profile)
 
-    console.print(f"eval [magenta]{args.profile}[/] {len(cases)} ข้อ ด้วยโมเดล [cyan]{model}[/]")
+    console.print(
+        f"eval [magenta]{args.profile}[/] {len(cases)} ข้อ ด้วยโมเดล [cyan]{model}[/] "
+        f"{'RAG ปิด' if args.no_rag else 'RAG เปิด'}"
+    )
     table = Table(show_lines=False)
     table.add_column("id", style="bold")
     table.add_column("ผล")
@@ -74,7 +78,7 @@ def main() -> None:
     total_time = 0.0
     for case in cases:
         t0 = time.perf_counter()
-        answer = llm.ask(case["q"], profile=args.profile, model=model)
+        answer = llm.ask(case["q"], profile=args.profile, model=model, rag=not args.no_rag)
         dt = time.perf_counter() - t0
         total_time += dt
         fails = check(case, answer)
@@ -83,7 +87,7 @@ def main() -> None:
         table.add_row(
             case["id"], "[green]ผ่าน[/]" if ok else "[red]ตก[/]", f"{dt:.1f}s", "; ".join(fails)
         )
-        records.append({**case, "model": model, "answer": answer, "pass": ok, "fails": fails, "seconds": round(dt, 2)})
+        records.append({**case, "model": model, "rag": not args.no_rag, "answer": answer, "pass": ok, "fails": fails, "seconds": round(dt, 2)})
         if args.show:
             console.rule(f"{case['id']}  {'ผ่าน' if ok else 'ตก'}")
             console.print(f"[blue]ถาม:[/] {case['q']}")
@@ -98,7 +102,7 @@ def main() -> None:
     out_dir = EVALS_DIR / "results"
     out_dir.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out = out_dir / f"{args.profile}-{stamp}.jsonl"
+    out = out_dir / f"{args.profile}-{'norag' if args.no_rag else 'rag'}-{stamp}.jsonl"
     out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n", encoding="utf-8")
     console.print(f"[dim]บันทึกผลที่ {out.relative_to(config.ROOT)}[/]")
 

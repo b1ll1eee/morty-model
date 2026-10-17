@@ -4,7 +4,7 @@ title = "morty-dev"
 # ถ้าอยากให้ profile นี้ใช้โมเดลคนละตัวกับค่าใน .env ให้ใส่ชื่อที่นี่ เช่น "qwen2.5-coder:7b"
 # model = "qwen2.5-coder:7b"
 
-# โฟลเดอร์เอกสารสำหรับ RAG ในระยะถัดไป (ยังไม่ถูกใช้งาน)
+# โฟลเดอร์เอกสารสำหรับ RAG: ใส่โค้ด, docs, note ลงไป แล้วรัน python -m morty.rag index dev
 data_dir = "data/dev"
 
 system = """
@@ -24,3 +24,8 @@ system = """
 [options]
 temperature = 0.2
 num_ctx = 8192
+
+[rag]
+enabled = true
+top_k = 4          # จำนวนท่อนสูงสุดที่แนบไปกับคำถาม
+min_score = 0.55   # cosine similarity ขั้นต่ำ ต่ำกว่านี้ถือว่าไม่เกี่ยว (nomic ให้คะแนนพื้นราว 0.45-0.50 แม้ไม่เกี่ยว)

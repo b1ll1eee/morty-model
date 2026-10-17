@@ -1,7 +1,7 @@
 """โหลด profile ของผู้ช่วยจาก morty/profiles/*.toml
 
 profile คือชั้นที่ซ้อนบนโมเดลกลางตัวเดียวกัน แต่ละตัวกำหนด
-system prompt, พารามิเตอร์การสุ่ม และ (ในอนาคต) โฟลเดอร์เอกสารสำหรับ RAG
+system prompt, พารามิเตอร์การสุ่ม และโฟลเดอร์เอกสารสำหรับ RAG
 เพิ่ม expert ใหม่ได้โดยเพิ่มไฟล์ .toml หนึ่งไฟล์ ไม่ต้องแก้โค้ด
 """
 from __future__ import annotations
@@ -23,7 +23,8 @@ class Profile:
     system: str
     model: str | None = None  # None = ใช้ค่าจาก .env
     options: dict = field(default_factory=dict)  # temperature, num_ctx, ...
-    data_dir: Path | None = None  # เอกสารสำหรับ RAG (ระยะถัดไป)
+    data_dir: Path | None = None  # เอกสารสำหรับ RAG
+    rag: dict = field(default_factory=dict)  # enabled, top_k, min_score
 
 
 def names() -> list[str]:
@@ -45,4 +46,5 @@ def load(name: str) -> Profile:
         model=raw.get("model") or None,
         options=dict(raw.get("options", {})),
         data_dir=(config.ROOT / data_dir) if data_dir else None,
+        rag=dict(raw.get("rag", {})),
     )

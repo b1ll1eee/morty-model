@@ -29,17 +29,24 @@ def chat_stream(messages: list[Message], model: str | None = None, **options) ->
         yield chunk["message"]["content"]
 
 
-def ask(prompt: str, system: str | None = None, profile: str | None = None, **kw) -> str:
+def ask(
+    prompt: str, system: str | None = None, profile: str | None = None, rag: bool = True, **kw
+) -> str:
     """ทางลัด: ถามคำถามเดียว ได้คำตอบเดียว
 
     profile="dev" จะใช้ system prompt, โมเดล และพารามิเตอร์ของ profile นั้น
+    และถ้า profile นั้นมีดัชนี RAG จะแนบเอกสารที่เกี่ยวข้องไปด้วย (ปิดได้ด้วย rag=False)
     ค่าที่ส่งมาตรงๆ (system=, model=, temperature=) มีสิทธิ์เหนือกว่า profile เสมอ
     """
     options: dict = {}
     if profile:
+        from . import rag as _rag  # import ตรงนี้เพื่อเลี่ยง import วน
+
         p = profiles.load(profile)
         system = system or p.system
         options = {**p.options, "model": p.model}
+        if rag:
+            prompt, _ = _rag.augment(p, prompt)
     options.update(kw)
     messages: list[Message] = [{"role": "system", "content": system or config.SYSTEM_PROMPT}]
     messages.append({"role": "user", "content": prompt})

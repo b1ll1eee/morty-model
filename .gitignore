@@ -5,6 +5,7 @@ __pycache__/
 data/**
 !data/**/
 !data/**/.gitkeep
+!data/dev/morty-project.md
 evals/results/
 .DS_Store
 .claude/autoharness/

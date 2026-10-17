@@ -8,3 +8,5 @@
 {"id": "docker-ps", "q": "Docker: คำสั่งดู container ที่กำลังรันอยู่", "expect_any": ["docker ps", "docker container ls"], "thai": true}
 {"id": "py-syntax-bug", "q": "โค้ดนี้ผิดตรงไหน\nfor i in range(10)\n    print(i)", "expect_any": ["colon", "โคลอน", "range(10):"], "thai": true}
 {"id": "py-dict-bigo", "q": "ค้นหา key ใน dict ของ Python มี time complexity เท่าไร เพราะอะไร", "expect_any": ["o(1)", "คงที่", "constant", "hash"], "thai": true}
+{"id": "morty-add-expert", "q": "ในโปรเจกต์ morty-model ถ้าจะเพิ่ม expert ใหม่ต้องทำอะไรบ้าง", "expect_any": ["toml"], "thai": true}
+{"id": "morty-rag-index", "q": "morty-model เก็บดัชนี RAG ไว้ที่ไหน และใช้โมเดล embedding อะไร", "expect_all": ["nomic-embed-text"], "expect_any": [".morty-index.json", "morty-index"], "thai": true}

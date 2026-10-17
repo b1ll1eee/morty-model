@@ -5,13 +5,14 @@
          .venv/bin/python -m morty.chat --model qwen3:14b
 คำสั่งในแชท:  /reset ล้างบทสนทนา   /model <ชื่อ> สลับโมเดล
               /profile <ชื่อ> สลับ profile (ล้างบทสนทนาด้วย)   /quit ออก
+ถ้า profile มีดัชนี RAG (python -m morty.rag index <ชื่อ>) จะแนบเอกสารที่เกี่ยวข้องให้อัตโนมัติ
 """
 import argparse
 import sys
 
 from rich.console import Console
 
-from . import config, llm, profiles
+from . import config, llm, profiles, rag
 
 console = Console()
 
@@ -32,9 +33,10 @@ def main() -> None:
     history: list[llm.Message] = [{"role": "system", "content": args.system or profile.system}]
 
     def banner() -> None:
+        rag_state = "RAG เปิด" if rag.available(profile) else "RAG ปิด"
         console.print(
             f"[bold green]{profile.title}[/] profile [magenta]{profile.name}[/] "
-            f"โมเดล [cyan]{model}[/]  (พิมพ์ /quit เพื่อออก)"
+            f"โมเดล [cyan]{model}[/] {rag_state}  (พิมพ์ /quit เพื่อออก)"
         )
 
     banner()
@@ -74,10 +76,15 @@ def main() -> None:
             continue
 
         history.append({"role": "user", "content": user})
+        # แนบเอกสารอ้างอิงเฉพาะข้อความที่ส่งให้โมเดลรอบนี้ ไม่เก็บลง history เพื่อไม่ให้ context บวม
+        augmented, hits = rag.augment(profile, user)
+        outgoing = history[:-1] + [{"role": "user", "content": augmented}]
+        if hits:
+            console.print("[dim]อ้างอิง: " + ", ".join(f"{h.path}#{h.chunk + 1} ({h.score:.2f})" for h in hits) + "[/]")
         console.print(f"[bold green]{profile.title}>[/] ", end="")
         parts_out: list[str] = []
         try:
-            for piece in llm.chat_stream(history, model=model, **options):
+            for piece in llm.chat_stream(outgoing, model=model, **options):
                 parts_out.append(piece)
                 console.print(piece, end="", highlight=False, markup=False)
         except Exception as e:  # noqa: BLE001
