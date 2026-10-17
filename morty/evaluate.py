@@ -135,24 +135,29 @@ def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bo
             dt = time.perf_counter() - t0
             fails = check(case, answer)
             ok = not fails
-            score, reason = (None, "")
-            if judge_model:
-                score, reason = judge(case["q"], answer, case, judge_model)
-            label = case["id"] + (f" #{run_idx + 1}" if repeat > 1 else "")
-            row = [label, "[green]ผ่าน[/]" if ok else "[red]ตก[/]", f"{dt:.1f}s"]
-            if judge_model:
-                row.append("-" if score is None else str(score))
-            note = "; ".join(fails)
-            if judge_model and score is not None and score < 2:
-                note = (note + " | " if note else "") + f"กรรมการ: {reason[:80]}"
-            table.add_row(*row, note)
             records.append({**case, "model": model, "model_digest": digest, "rag": rag, "answer": answer,
                             "pass": ok, "fails": fails, "seconds": round(dt, 2), "run": run_idx + 1,
-                            "judge_model": judge_model, "judge_score": score, "judge_reason": reason})
+                            "judge_model": judge_model, "judge_score": None, "judge_reason": ""})
             if show:
                 console.rule(f"{case['id']}  {'ผ่าน' if ok else 'ตก'}")
                 console.print(f"[blue]ถาม:[/] {case['q']}")
                 console.print(answer, markup=False, highlight=False)
+
+    # ให้กรรมการตรวจทีเดียวหลังตอบครบทุกข้อ เพื่อไม่ต้องสลับโมเดลตอบกับโมเดลกรรมการไปมาทุกข้อ
+    # (สลับทุกข้อทำให้ Ollama โหลด weight ใหม่บ่อย 20 ข้อกินเวลาเกือบชั่วโมง)
+    if judge_model:
+        console.print(f"[dim]กรรมการ {judge_model} กำลังให้คะแนน {len(records)} คำตอบ...[/]")
+        for r in records:
+            r["judge_score"], r["judge_reason"] = judge(r["q"], r["answer"], r, judge_model)
+    for r in records:
+        label = r["id"] + (f" #{r['run']}" if repeat > 1 else "")
+        row = [label, "[green]ผ่าน[/]" if r["pass"] else "[red]ตก[/]", f"{r['seconds']:.1f}s"]
+        if judge_model:
+            row.append("-" if r["judge_score"] is None else str(r["judge_score"]))
+        note = "; ".join(r["fails"])
+        if judge_model and r["judge_score"] is not None and r["judge_score"] < 2:
+            note = (note + " | " if note else "") + f"กรรมการ: {r['judge_reason'][:80]}"
+        table.add_row(*row, note)
 
     passed = sum(r["pass"] for r in records)
     total_time = sum(r["seconds"] for r in records)

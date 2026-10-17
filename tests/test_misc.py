@@ -46,3 +46,20 @@ def test_review_numbered_and_prompt():
     assert "### x.py\n```py\n1 | print(1)" in prompt
     assert "### git diff\n```\ndiff --git" in prompt
     assert "ความปลอดภัย" in prompt
+
+
+def test_run_judges_after_all_answers(fake_chat, monkeypatch):
+    """กรรมการต้องถูกเรียกหลังตอบครบทุกข้อ ไม่สลับโมเดลทุกข้อ"""
+    from rich.console import Console
+
+    queue, calls = fake_chat
+    monkeypatch.setattr(evaluate.llm, "ask", lambda q, **kw: "ตอบ json.load ครับ")
+    monkeypatch.setattr(evaluate.llm, "model_digest", lambda m: "abc")
+    queue += ['{"score": 2, "reason": "ถูก"}', '{"score": 1, "reason": "ขาด"}']
+    cases = [{"id": "a", "q": "x", "expect_any": ["json.load"], "thai": True},
+             {"id": "b", "q": "y", "expect_any": ["json.load"], "thai": True}]
+    records = evaluate.run("dev", "m7", cases, rag=False, show=False, console=Console(quiet=True), judge_model="m14")
+    assert [r["judge_score"] for r in records] == [2, 1]
+    assert all(c["model"] == "m14" for c in calls) and calls[0]["options"]["format"] == evaluate.JUDGE_SCHEMA
+    s = evaluate.summary(records)
+    assert s["judge_avg"] == 1.5 and s["passed"] == 2
