@@ -25,13 +25,42 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.suggester import SuggestFromList
-from textual.widgets import Button, Input, Markdown, Static
+from textual.widgets import Button, Input, Markdown, OptionList, Static
+from textual.widgets.option_list import Option
 
 from . import agent, config, llm, log, profiles, rag
 
 SLASH = ["/profile ", "/model ", "/theme ", "/reset", "/bad ", "/good", "/quit", "/help"]
 THEMES = ["tokyo-night", "catppuccin-mocha", "nord", "gruvbox", "dracula", "textual-dark", "textual-light"]
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+MODEL_ALIASES = {"fast": "qwen2.5", "smart": "qwen3", "เร็ว": "qwen2.5", "ฉลาด": "qwen3"}  # แปลงเป็นคำค้นในชื่อโมเดลที่ติดตั้ง
+
+
+def installed_models() -> list[tuple[str, str]]:
+    """[(ชื่อ, ขนาด)] ของโมเดลแชทที่มีในเครื่อง (ตัดโมเดล embedding ออก) ว่างถ้าต่อ Ollama ไม่ได้"""
+    try:
+        rows = llm._client.list()["models"]
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for m in rows:
+        name = m["model"]
+        if "embed" in name:
+            continue
+        out.append((name, f"{m.get('size', 0) / 1e9:.1f} GB"))
+    return sorted(out)
+
+
+def resolve_model(query: str, names: list[str]) -> str | None:
+    """'qwen3:14b' ตรงตัว, '14b' / 'qwen3' ค้นในชื่อ, 'fast'/'smart' เป็นชื่อเล่น คืน None ถ้าไม่ชัดเจน"""
+    q = query.strip().lower()
+    if not q:
+        return None
+    if q in names:
+        return q
+    q = MODEL_ALIASES.get(q, q)
+    hits = [n for n in names if q in n.lower()]
+    return hits[0] if len(hits) == 1 else None
 LOGO = """\
 ███╗   ███╗ ██████╗ ██████╗ ████████╗██╗   ██╗
 ████╗ ████║██╔═══██╗██╔══██╗╚══██╔══╝╚██╗ ██╔╝
@@ -84,6 +113,47 @@ class HistoryInput(Input):
             return
         self.pos += 1
         self._show(self.history[self.pos] if self.pos < len(self.history) else self.draft)
+
+
+class PickerScreen(ModalScreen[str | None]):
+    """รายการให้เลือกด้วยลูกศร + Enter (Esc ยกเลิก) ใช้กับ /model และ /profile"""
+
+    BINDINGS = [Binding("escape", "cancel", "ยกเลิก")]
+    DEFAULT_CSS = """
+    PickerScreen { align: center middle; background: $background 60%; }
+    #pick { width: 70; height: auto; max-height: 80%; border: round $primary; background: $surface; padding: 1 2; }
+    #pick { border-title-color: $primary; border-title-style: bold; border-subtitle-color: $text-muted; }
+    #options { height: auto; max-height: 20; border: none; background: $surface; }
+    """
+
+    def __init__(self, title: str, items: list[tuple[str, str]], current: str | None) -> None:
+        super().__init__()
+        self.title_text, self.items, self.current = title, items, current
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="pick") as box:
+            box.border_title = self.title_text
+            box.border_subtitle = "↑↓ เลือก · Enter ตกลง · Esc ยกเลิก"
+            options = []
+            for value, desc in self.items:
+                mark = "●" if value == self.current else "○"
+                label = Text.assemble((f"{mark} ", "bold" if value == self.current else ""), (value, "bold"), ("  " + desc, "dim"))
+                options.append(Option(label, id=value))
+            yield OptionList(*options, id="options")
+
+    def on_mount(self) -> None:
+        ol = self.query_one(OptionList)
+        ids = [v for v, _ in self.items]
+        if self.current in ids:
+            ol.highlighted = ids.index(self.current)
+        ol.focus()
+
+    @on(OptionList.OptionSelected)
+    def _selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(event.option.id)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class PermissionScreen(ModalScreen[bool]):
@@ -337,7 +407,7 @@ class MortyApp(App):
         if cmd in ("/quit", "/exit"):
             self.exit()
         elif cmd == "/help":
-            self.add_system("/profile <ชื่อ> สลับ expert (ล้างบทสนทนา) · /model <ชื่อ> สลับโมเดล · /theme <ชื่อ> เปลี่ยนธีม · "
+            self.add_system("/model เปิดรายการโมเดล หรือ /model 14b, fast, smart · /profile เปิดรายการ expert (ล้างบทสนทนา) · /theme <ชื่อ> เปลี่ยนธีม · "
                             "/reset ล้างบทสนทนา · /bad [เหตุผล] และ /good ให้คะแนนคำตอบล่าสุด · /quit ออก")
         elif cmd == "/theme":
             if arg.strip() in THEMES:
@@ -349,26 +419,28 @@ class MortyApp(App):
             self.history = self.history[:1]
             self.add_system("ล้างบทสนทนาแล้ว")
         elif cmd == "/model":
+            models = installed_models()
+            names = [n for n, _ in models]
             if not arg:
-                self.add_system(f"โมเดลตอนนี้ {self.model}")
+                if not models:
+                    self.add_system(f"โมเดลตอนนี้ {self.model} (ต่อ Ollama ไม่ได้ จึงแสดงรายการไม่ได้)")
+                    return
+                self.push_screen(PickerScreen("เลือกโมเดล", models, self.model), self.set_model)
                 return
-            self.model = arg.strip()
-            self.add_system(f"สลับไปใช้ {self.model}")
-            self.refresh_status()
+            chosen = resolve_model(arg, names) or (arg.strip() if not names else None)
+            if chosen is None:
+                self.add_error(f"ไม่พบโมเดลที่ตรงกับ {arg.strip()!r} มีให้เลือก: " + ", ".join(names) + "  (ใช้ชื่อสั้นได้ เช่น 7b, 14b, fast, smart)")
+                return
+            self.set_model(chosen)
         elif cmd == "/profile":
             if not arg:
-                self.add_system("profile ที่มี: " + ", ".join(profiles.names()))
+                items = []
+                for name in profiles.names():
+                    pr = profiles.load(name)
+                    items.append((name, f"{pr.title} · {pr.model or config.MODEL}"))
+                self.push_screen(PickerScreen("เลือก profile", items, self.profile.name), self.set_profile)
                 return
-            try:
-                self.profile = profiles.load(arg.strip())
-            except KeyError as e:
-                self.add_error(str(e))
-                return
-            self.model = self.model_override or self.profile.model or config.MODEL
-            self.options = dict(self.profile.options)
-            self.history = [{"role": "system", "content": self.profile.system}]
-            self.add_system(f"สลับเป็น {self.profile.title} แล้ว (ล้างบทสนทนา)")
-            self.refresh_status()
+            self.set_profile(arg.strip())
         elif cmd in ("/bad", "/good"):
             if not self.last_id:
                 self.add_system("ยังไม่มีคำตอบให้ให้คะแนน")
@@ -377,6 +449,27 @@ class MortyApp(App):
             self.add_system(f"บันทึกแล้วว่าคำตอบล่าสุด {cmd[1:]}")
         else:
             self.add_error(f"ไม่รู้จักคำสั่ง {cmd} พิมพ์ /help")
+
+    def set_model(self, name: str | None) -> None:
+        if not name:
+            return
+        self.model = name
+        self.add_system(f"สลับไปใช้โมเดล {self.model}")
+        self.refresh_status()
+
+    def set_profile(self, name: str | None) -> None:
+        if not name:
+            return
+        try:
+            self.profile = profiles.load(name)
+        except KeyError as e:
+            self.add_error(str(e))
+            return
+        self.model = self.model_override or self.profile.model or config.MODEL
+        self.options = dict(self.profile.options)
+        self.history = [{"role": "system", "content": self.profile.system}]
+        self.add_system(f"สลับเป็น {self.profile.title} แล้ว (ล้างบทสนทนา)")
+        self.refresh_status()
 
     def action_cancel_or_quit(self) -> None:
         if self.busy:

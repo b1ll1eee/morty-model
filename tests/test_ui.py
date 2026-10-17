@@ -15,7 +15,6 @@ def test_app_mounts_and_handles_commands(tmp_path, monkeypatch):
         app = ui.MortyApp("general", Path(tmp_path), use_tools=False)
         async with app.run_test() as pilot:
             assert "Morty (กลาง)" in str(app.query_one("#status", Static).render())
-            app.handle_command("/profile")
             app.handle_command("/profile dev")
             assert app.profile.name == "dev" and len(app.history) == 1
             app.handle_command("/model qwen3:14b")
@@ -24,7 +23,7 @@ def test_app_mounts_and_handles_commands(tmp_path, monkeypatch):
             app.handle_command("/nope")
             await pilot.pause()
             texts = [str(w.render()) for w in app.query(".system, .error")]
-            assert any("profile ที่มี" in t for t in texts) and any("ไม่รู้จักคำสั่ง" in t for t in texts)
+            assert any("สลับเป็น" in t for t in texts) and any("ไม่รู้จักคำสั่ง" in t for t in texts)
     _run(inner())
 
 
@@ -90,4 +89,39 @@ def test_input_history_up_down(tmp_path, monkeypatch):
             await pilot.press("enter")            # คำสั่งก็ถูกจำ และไม่จำซ้ำติดกัน
             inp.remember("/help")
             assert inp.history[-1] == "/help" and inp.history.count("/help") == 1 and inp.pos == len(inp.history)
+    _run(inner())
+
+
+def test_resolve_model_aliases():
+    names = ["qwen2.5:7b", "qwen3:14b"]
+    assert ui.resolve_model("qwen3:14b", names) == "qwen3:14b"
+    assert ui.resolve_model("14b", names) == "qwen3:14b"
+    assert ui.resolve_model("fast", names) == "qwen2.5:7b"
+    assert ui.resolve_model("smart", names) == "qwen3:14b"
+    assert ui.resolve_model("qwen", names) is None      # กำกวม
+    assert ui.resolve_model("llama", names) is None     # ไม่มี
+
+
+def test_model_picker_and_short_names(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui, "installed_models", lambda: [("qwen2.5:7b", "4.7 GB"), ("qwen3:14b", "9.3 GB")])
+
+    async def inner():
+        app = ui.MortyApp("general", Path(tmp_path), use_tools=False)
+        async with app.run_test() as pilot:
+            app.handle_command("/model 14b")
+            assert app.model == "qwen3:14b"
+            app.handle_command("/model nope")
+            assert app.model == "qwen3:14b"
+            app.handle_command("/model")               # เปิดรายการ ตัวปัจจุบันถูกไฮไลต์ กดขึ้นแล้ว Enter = เลือก 7b
+            await pilot.pause()
+            assert isinstance(app.screen, ui.PickerScreen)
+            await pilot.press("up")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.model == "qwen2.5:7b"
+            app.handle_command("/profile")
+            await pilot.pause()
+            await pilot.press("escape")                # ยกเลิก ไม่เปลี่ยน
+            await pilot.pause()
+            assert app.profile.name == "general"
     _run(inner())
