@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import threading
 import time
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from rich.syntax import Syntax
@@ -28,7 +29,23 @@ from textual.widgets import Button, Input, Markdown, Static
 
 from . import agent, config, llm, log, profiles, rag
 
-SLASH = ["/profile ", "/model ", "/reset", "/bad ", "/good", "/quit", "/help"]
+SLASH = ["/profile ", "/model ", "/theme ", "/reset", "/bad ", "/good", "/quit", "/help"]
+THEMES = ["tokyo-night", "catppuccin-mocha", "nord", "gruvbox", "dracula", "textual-dark", "textual-light"]
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+LOGO = """\
+███╗   ███╗ ██████╗ ██████╗ ████████╗██╗   ██╗
+████╗ ████║██╔═══██╗██╔══██╗╚══██╔══╝╚██╗ ██╔╝
+██╔████╔██║██║   ██║██████╔╝   ██║    ╚████╔╝
+██║╚██╔╝██║██║   ██║██╔══██╗   ██║     ╚██╔╝
+██║ ╚═╝ ██║╚██████╔╝██║  ██║   ██║      ██║
+╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝      ╚═╝"""
+
+
+def _version() -> str:
+    try:
+        return version("morty-model")
+    except PackageNotFoundError:
+        return "dev"
 
 
 class PermissionScreen(ModalScreen[bool]):
@@ -36,12 +53,13 @@ class PermissionScreen(ModalScreen[bool]):
 
     BINDINGS = [Binding("y", "allow", "อนุญาต"), Binding("n", "deny", "ปฏิเสธ"), Binding("escape", "deny", "ปฏิเสธ")]
     DEFAULT_CSS = """
-    PermissionScreen { align: center middle; }
-    #box { width: 90%; max-width: 110; height: auto; max-height: 85%; border: thick $warning; background: $surface; padding: 1 2; }
-    #title { text-style: bold; color: $warning; }
-    #body { height: auto; max-height: 30; overflow-y: auto; margin: 1 0; }
+    PermissionScreen { align: center middle; background: $background 60%; }
+    #box { width: 90%; max-width: 110; height: auto; max-height: 85%; border: round $warning; background: $surface; padding: 1 2; }
+    #box { border-title-color: $warning; border-title-style: bold; border-subtitle-color: $text-muted; }
+    #title { text-style: bold; color: $text; margin-bottom: 1; }
+    #body { height: auto; max-height: 30; overflow-y: auto; margin: 0 0 1 0; padding: 0 1; background: $panel; }
     #buttons { height: 3; align: center middle; }
-    Button { margin: 0 2; }
+    Button { margin: 0 2; min-width: 16; }
     """
 
     def __init__(self, description: str) -> None:
@@ -51,8 +69,11 @@ class PermissionScreen(ModalScreen[bool]):
         self.body_text = rest
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="box"):
-            yield Static(f"Morty ขอ {self.title_text}", id="title")
+        icon = "✎" if self.title_text.startswith(("แก้ไฟล์", "เขียนทับ", "สร้างไฟล์")) else "▶"
+        with Vertical(id="box") as box:
+            box.border_title = f"{icon} ขออนุญาต"
+            box.border_subtitle = "y อนุญาต · n ปฏิเสธ · Esc ปฏิเสธ"
+            yield Static(self.title_text, id="title")
             body = self.body_text.strip()
             if body.startswith(("--- ", "diff ")) or "\n@@" in body:
                 yield Static(Syntax(body, "diff", theme="ansi_dark", word_wrap=True), id="body")
@@ -77,16 +98,24 @@ class MortyApp(App):
     TITLE = "Morty"
     CSS = """
     Screen { layout: vertical; }
-    #status { height: 1; background: $primary-background; color: $text; padding: 0 1; }
-    #transcript { height: 1fr; padding: 0 1; }
-    .user { color: $accent; text-style: bold; margin-top: 1; }
-    .tool { color: $text-muted; }
-    .assistant-label { color: $success; text-style: bold; }
-    .answer { margin-bottom: 1; }
-    .system { color: $text-muted; text-style: italic; }
-    .error { color: $error; }
-    #input { dock: bottom; }
-    #hint { height: 1; color: $text-muted; padding: 0 1; }
+    #status { height: 1; background: $panel; color: $text; padding: 0 1; }
+    #transcript { height: 1fr; padding: 0 2; scrollbar-size: 1 1; }
+    #welcome { border: round $primary; padding: 0 2; margin: 1 0; height: auto; background: $surface; }
+    #welcome { border-title-color: $primary; border-subtitle-color: $text-muted; }
+    .logo { color: $primary; text-style: bold; }
+    .user { padding: 0 1; border-left: thick $accent; color: $text; }
+    .user-label { color: $accent; text-style: bold; margin-top: 1; }
+    .tool { color: $text-muted; padding: 0 0 0 2; }
+    .tool-result { color: $text-muted; text-style: dim; padding: 0 0 0 5; }
+    .assistant { border: round $success 50%; padding: 0 1; margin: 0 0 1 0; height: auto; background: $surface; }
+    .assistant { border-title-color: $success; border-title-style: bold; border-subtitle-color: $text-muted; }
+    .answer { height: auto; }
+    .system { color: $text-muted; text-style: italic; padding: 0 1; }
+    .error { color: $error; padding: 0 1; }
+    .thinking { color: $warning; padding: 0 1; }
+    #input { dock: bottom; border: round $primary; background: $surface; }
+    #input:focus { border: round $accent; }
+    #hint { height: 1; color: $text-muted; padding: 0 1; dock: bottom; }
     """
     BINDINGS = [
         Binding("ctrl+c", "cancel_or_quit", "หยุด/ออก", priority=True),
@@ -109,35 +138,73 @@ class MortyApp(App):
         self.cancel_flag = threading.Event()
         self.last_seconds = 0.0
         self.last_tools = 0
+        self.started_at = 0.0
+        self.spinner_i = 0
+        self.thinking: Static | None = None
 
     # ---------- โครงหน้าจอ ----------
 
     def compose(self) -> ComposeResult:
         yield Static(id="status")
         yield VerticalScroll(id="transcript")
-        yield Static("Enter ส่ง · / คำสั่ง · Ctrl+C หยุด · Ctrl+Q ออก", id="hint")
         yield Input(placeholder="พิมพ์ข้อความ หรือ / เพื่อดูคำสั่ง", id="input",
                     suggester=SuggestFromList(SLASH, case_sensitive=False))
+        yield Static(" [b]Enter[/b] ส่ง  ·  [b]/[/b] คำสั่ง  ·  [b]Ctrl+C[/b] หยุด  ·  [b]Ctrl+Q[/b] ออก  ·  [b]/theme[/b] เปลี่ยนธีม", id="hint")
 
     def on_mount(self) -> None:
+        self.theme = "tokyo-night"
         self.refresh_status()
-        self.add_system(f"{self.profile.title} พร้อมแล้ว workspace: {self.workspace}  พิมพ์ /help ดูคำสั่ง")
+        self.add_welcome()
         self.query_one("#input", Input).focus()
+        self.set_interval(0.12, self._tick)
+
+    def add_welcome(self) -> None:
+        box = Vertical(id="welcome")
+        box.border_title = f"Morty v{_version()}"
+        box.border_subtitle = "local · private · ollama"
+        self._add(box)
+        box.mount(Static(LOGO, classes="logo"))
+        tips = Text()
+        tips.append(self.profile.title, style="bold")
+        tips.append(f"  ·  โมเดล {self.model}  ·  workspace ")
+        tips.append(str(self.workspace), style="dim")
+        tips.append("\n\n")
+        tips.append("›  ", style="bold")
+        tips.append("ถามเรื่องโค้ดในโฟลเดอร์นี้ได้เลย เช่น  \"ไฟล์ main.py ทำอะไร\"  หรือ  \"แก้ TIMEOUT ใน config.py เป็น 30\"\n")
+        tips.append("›  ", style="bold")
+        tips.append("ก่อนแก้ไฟล์หรือรันคำสั่ง Morty จะแสดง diff แล้วขออนุญาตเสมอ\n")
+        tips.append("›  ", style="bold")
+        tips.append("ตอบไม่ดีพิมพ์  /bad เหตุผล  เพื่อเก็บไว้ปรับปรุง   พิมพ์  /help  ดูคำสั่งทั้งหมด")
+        box.mount(Static(tips))
+
+    def _tick(self) -> None:
+        if self.busy and self.thinking is not None:
+            self.spinner_i = (self.spinner_i + 1) % len(SPINNER)
+            elapsed = time.perf_counter() - self.started_at
+            self.thinking.update(f"{SPINNER[self.spinner_i]} กำลังคิด · {elapsed:.1f}s")
+
+    def context_gauge(self) -> str:
+        used = sum(len(m.get("content", "")) for m in self.history) // 3  # ประมาณ token อย่างหยาบ
+        limit = int(self.options.get("num_ctx", 2048))
+        filled = min(8, round(8 * used / limit)) if limit else 0
+        return f"{'▰' * filled}{'▱' * (8 - filled)} {used / 1000:.1f}k/{limit // 1000}k"
 
     def tools_on(self) -> bool:
         return self.use_tools and bool(self.profile.tools.get("enabled"))
 
     def refresh_status(self) -> None:
+        on, off = "[$success]●[/]", "[$text-muted]○[/]"
         parts = [
-            f"[b]{self.profile.title}[/b]", f"profile {self.profile.name}", f"โมเดล {self.model}",
-            "RAG เปิด" if rag.available(self.profile) else "RAG ปิด",
-            "เครื่องมือเปิด" if self.tools_on() else "เครื่องมือปิด",
+            f"[b]◆ {self.profile.title}[/b]", f"⬢ {self.model}",
+            f"{on if rag.available(self.profile) else off} RAG",
+            f"{on if self.tools_on() else off} เครื่องมือ",
+            f"▣ {self.context_gauge()}",
         ]
         if self.last_seconds:
-            parts.append(f"ล่าสุด {self.last_seconds:.1f}s" + (f" · {self.last_tools} เครื่องมือ" if self.last_tools else ""))
+            parts.append(f"⏱ {self.last_seconds:.1f}s" + (f" · 🔧 {self.last_tools}" if self.last_tools else ""))
         if self.busy:
-            parts.append("[yellow]กำลังคิด...[/yellow]")
-        self.query_one("#status", Static).update(" · ".join(parts))
+            parts.append("[$warning]● กำลังคิด[/]")
+        self.query_one("#status", Static).update("  ".join(parts))
 
     # ---------- transcript ----------
 
@@ -147,30 +214,50 @@ class MortyApp(App):
         box.scroll_end(animate=False)
 
     def add_user(self, text: str) -> None:
-        self._add(Static(Text(f"คุณ> {text}"), classes="user"))
+        self._add(Static("คุณ ›", classes="user-label"))
+        self._add(Static(Text(text), classes="user"))
 
     def add_system(self, text: str) -> None:
         self._add(Static(text, classes="system"))
 
     def add_error(self, text: str) -> None:
-        self._add(Static(text, classes="error"))
+        self._add(Static(f"✖ {text}", classes="error"))
 
     def add_tool(self, text: str) -> None:
-        self._add(Static(Text(f"🔧 {text}"), classes="tool"))
+        name, _, args = text.partition("(")
+        self._add(Static(Text.assemble(("▸ ", "bold"), (name, "bold"), (" " + args.rstrip(")"), "dim")), classes="tool"))
+
+    def add_tool_result(self, text: str) -> None:
+        if text:
+            self._add(Static(Text(f"→ {text}"), classes="tool-result"))
+
+    def start_thinking(self) -> None:
+        self.started_at = time.perf_counter()
+        self.thinking = Static(f"{SPINNER[0]} กำลังคิด · 0.0s", classes="thinking")
+        self._add(self.thinking)
+
+    def stop_thinking(self) -> None:
+        if self.thinking is not None:
+            self.thinking.remove()
+            self.thinking = None
 
     def start_answer(self) -> Static:
-        self._add(Static(f"{self.profile.title}>", classes="assistant-label"))
-        widget = Static("", classes="answer")
-        self._add(widget)
+        self.stop_thinking()
+        panel = Vertical(classes="assistant")
+        panel.border_title = self.profile.title
+        self._add(panel)
+        widget = Static("▌", classes="answer")
+        panel.mount(widget)
         return widget
 
     def finish_answer(self, widget: Static, text: str) -> None:
-        """แทนข้อความดิบด้วย Markdown ที่เรนเดอร์แล้ว"""
-        box = self.query_one("#transcript", VerticalScroll)
+        """แทนข้อความดิบด้วย Markdown ที่เรนเดอร์แล้ว และใส่เวลาที่ใช้ไว้มุมกล่อง"""
+        panel = widget.parent
         md = Markdown(text or "(ว่าง)", classes="answer")
-        box.mount(md, after=widget)
+        panel.mount(md, after=widget)
         widget.remove()
-        box.scroll_end(animate=False)
+        panel.border_subtitle = f"{time.perf_counter() - self.started_at:.1f}s"
+        self.query_one("#transcript", VerticalScroll).scroll_end(animate=False)
 
     # ---------- อินพุต ----------
 
@@ -190,6 +277,7 @@ class MortyApp(App):
         self.history.append({"role": "user", "content": text})
         self.busy = True
         self.cancel_flag.clear()
+        self.start_thinking()
         self.refresh_status()
         self.generate(text)
 
@@ -199,8 +287,14 @@ class MortyApp(App):
         if cmd in ("/quit", "/exit"):
             self.exit()
         elif cmd == "/help":
-            self.add_system("/profile <ชื่อ> สลับ expert (ล้างบทสนทนา) · /model <ชื่อ> สลับโมเดล · /reset ล้างบทสนทนา · "
-                            "/bad [เหตุผล] และ /good ให้คะแนนคำตอบล่าสุด · /quit ออก")
+            self.add_system("/profile <ชื่อ> สลับ expert (ล้างบทสนทนา) · /model <ชื่อ> สลับโมเดล · /theme <ชื่อ> เปลี่ยนธีม · "
+                            "/reset ล้างบทสนทนา · /bad [เหตุผล] และ /good ให้คะแนนคำตอบล่าสุด · /quit ออก")
+        elif cmd == "/theme":
+            if arg.strip() in THEMES:
+                self.theme = arg.strip()
+                self.add_system(f"ธีม {self.theme}")
+            else:
+                self.add_system("ธีมที่มี: " + ", ".join(THEMES))
         elif cmd == "/reset":
             self.history = self.history[:1]
             self.add_system("ล้างบทสนทนาแล้ว")
@@ -282,6 +376,8 @@ class MortyApp(App):
                     if kind == "tool":
                         tools_used.append(text.split("(")[0])
                         self.call_from_thread(self.add_tool, text)
+                    else:
+                        self.call_from_thread(self.add_tool_result, text)
 
                 answer, _ = agent.run(outgoing, model=self.model, options=self.options, ws=ws, on_event=on_event)
                 widget = self.call_from_thread(self.start_answer)
@@ -294,7 +390,7 @@ class MortyApp(App):
                         parts.append("\n\n(หยุดโดยผู้ใช้)")
                         break
                     parts.append(piece)
-                    self.call_from_thread(widget.update, "".join(parts))
+                    self.call_from_thread(widget.update, "".join(parts) + "▌")
                 answer = "".join(parts)
                 self.call_from_thread(self.finish_answer, widget, answer)
             self.history.append({"role": "assistant", "content": answer})
@@ -309,6 +405,7 @@ class MortyApp(App):
             self.call_from_thread(self.add_error, f"เกิดข้อผิดพลาด: {e}")
         finally:
             self.busy = False
+            self.call_from_thread(self.stop_thinking)
             self.call_from_thread(self.refresh_status)
 
 
