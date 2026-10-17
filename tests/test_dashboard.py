@@ -28,3 +28,39 @@ def test_build_renders_without_data(tmp_path, monkeypatch):
     monkeypatch.setattr(dashboard, "ollama_status", lambda: {"up": False, "models": [], "loaded": []})
     page = dashboard.build(7)
     assert "<title>Morty Dashboard</title>" in page and "ยังไม่มีผล eval" in page
+
+
+def test_refresh_file_only_when_exists(tmp_path, monkeypatch):
+    monkeypatch.setattr(dashboard, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(dashboard, "RESULTS_DIR", tmp_path / "none")
+    monkeypatch.setattr(dashboard.log, "LOG_DIR", tmp_path / "nolog")
+    monkeypatch.setattr(dashboard, "ollama_status", lambda: {"up": False, "models": [], "loaded": []})
+    assert dashboard.refresh_file() is None
+    assert dashboard.refresh_file(force=True) == tmp_path / "dashboard.html"
+    assert dashboard.refresh_file() is not None  # ตอนนี้มีไฟล์แล้ว จึงสร้างใหม่
+
+
+def test_serve_builds_page_per_request(tmp_path, monkeypatch):
+    import http.client
+    import threading
+
+    monkeypatch.setattr(dashboard, "RESULTS_DIR", tmp_path / "none")
+    monkeypatch.setattr(dashboard.log, "LOG_DIR", tmp_path / "nolog")
+    monkeypatch.setattr(dashboard, "ollama_status", lambda: {"up": False, "models": [], "loaded": []})
+    server = dashboard.serve(0, 7, 15, open_browser=False)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+        conn.request("GET", "/")
+        r = conn.getresponse()
+        body = r.read().decode("utf-8")
+        assert r.status == 200 and 'http-equiv="refresh" content="15"' in body and "Morty Dashboard" in body
+        conn.request("GET", "/?refresh=0")
+        body = conn.getresponse().read().decode("utf-8")
+        assert 'http-equiv="refresh"' not in body
+        conn.request("GET", "/nope")
+        assert conn.getresponse().status == 404
+    finally:
+        server.shutdown()
+        server.server_close()

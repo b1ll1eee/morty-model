@@ -26,7 +26,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from . import agent, config, llm, profiles, reviewpipe
+from . import agent, config, dashboard, llm, profiles, reviewpipe
 
 EVALS_DIR = config.ROOT / "evals"
 THAI = re.compile(r"[฀-๿]")
@@ -253,6 +253,9 @@ def main() -> None:
         out = out_dir / f"compare-{args.profile}-{tag}-{stamp}.json"
         out.write_text(json.dumps(summaries, ensure_ascii=False, indent=2), encoding="utf-8")
         console.print(f"[dim]บันทึกสรุปที่ {out.relative_to(config.ROOT)}[/]")
+
+    if dashboard.refresh_file(force=True):
+        console.print("[dim]อัปเดต reports/dashboard.html แล้ว[/]")
 
 
 if __name__ == "__main__":

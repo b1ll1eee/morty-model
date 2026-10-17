@@ -54,12 +54,24 @@ def record(*, source: str, profile: str, model: str, question: str, answer: str,
         "question": question, "answer": answer, "seconds": round(seconds, 2), "refs": refs or [],
         "tools": tools or [], "meta": meta or {},
     })
+    _refresh_dashboard()
     return event_id
 
 
 def rate(event_id: str, rating: str, note: str = "") -> None:
     _append({"type": "rating", "ref": event_id, "ts": datetime.now().isoformat(timespec="seconds"),
              "rating": rating, "note": note})
+    _refresh_dashboard()
+
+
+def _refresh_dashboard() -> None:
+    """สร้าง reports/dashboard.html ใหม่ถ้าผู้ใช้เคยสร้างไว้ (import ตรงนี้เพื่อเลี่ยง import วน)"""
+    try:
+        from . import dashboard
+
+        dashboard.refresh_file()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------- อ่านกลับ ----------

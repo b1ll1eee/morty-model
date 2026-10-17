@@ -3,8 +3,12 @@
 ใช้งาน:  .venv/bin/python -m morty.dashboard            # เขียน reports/dashboard.html
          .venv/bin/python -m morty.dashboard --open     # แล้วเปิดในเบราว์เซอร์
          .venv/bin/python -m morty.dashboard --days 14  # ดูย้อนหลัง 14 วัน (ค่าเริ่มต้น 30)
+         .venv/bin/python -m morty.dashboard --serve    # เปิด local server สร้างหน้าใหม่ทุกครั้งที่เบราว์เซอร์ขอ
+                                                        # และหน้า refresh เองทุก 30 วินาที (--refresh 0 ปิด)
 
 ทุกอย่างคำนวณในเครื่อง ไม่ส่งข้อมูลออกไปไหน กราฟเป็น SVG ที่สร้างจาก Python ล้วน ไม่โหลดอะไรจากเน็ต
+นอกจากนี้ evaluate, review และการให้คะแนน (/bad /good, morty.log rate) จะสร้าง reports/dashboard.html ใหม่ให้เอง
+ถ้าไฟล์นั้นมีอยู่แล้ว (แปลว่าคุณใช้ dashboard) หน้าที่เปิดค้างไว้แค่กด reload
 """
 from __future__ import annotations
 
@@ -13,9 +17,11 @@ import html
 import json
 import re
 import statistics
+import threading
 import webbrowser
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import config, llm, log
@@ -184,7 +190,8 @@ def out_join(parts: list[str]) -> str:
 
 # ---------- ประกอบหน้า ----------
 
-def build(days: int) -> str:
+def build(days: int, refresh: int = 0) -> str:
+    """refresh > 0 ใส่ meta refresh ให้หน้าสร้างใหม่เองทุก N วินาที (ใช้กับ --serve)"""
     now = datetime.now()
     since = now - timedelta(days=days)
     exchanges = [e for e in log.exchanges() if datetime.fromisoformat(e["ts"]) >= since]
@@ -317,6 +324,7 @@ def build(days: int) -> str:
     return f"""<!doctype html>
 <html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Morty Dashboard</title>
+{f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ''}
 <style>
 :root{{--bg:#f6f7f9;--surface:#ffffff;--fg:#1d2530;--muted:#5d6877;--line:#d7dce3;--grid:#e6eaf0;--accent:#0e7c6b;{light_series}}}
 @media (prefers-color-scheme: dark){{:root{{--bg:#151a21;--surface:#1d232c;--fg:#e6eaef;--muted:#9aa6b4;--line:#3a4350;--grid:#2a313c;--accent:#4fc3ad;{dark_series};color-scheme:dark}}}}
@@ -349,7 +357,7 @@ code{{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.85em}}
 .status{{display:inline-block;width:8px;height:8px;border-radius:50%;background:{STATUS['good'] if status['up'] else STATUS['bad']};margin-right:6px}}
 </style></head><body><main>
 <h1>Morty Dashboard</h1>
-<p class="sub">สร้างเมื่อ {now:%d %b %Y %H:%M} · ช่วง {days} วันล่าสุด · <span class="status"></span>Ollama {'ทำงาน' if status['up'] else 'ไม่ตอบ'} · โมเดลในเครื่อง: {models_html} · ใน RAM ตอนนี้: {loaded_html}</p>
+<p class="sub">สร้างเมื่อ {now:%d %b %Y %H:%M:%S}{f' · refresh ทุก {refresh}s' if refresh else ''} · ช่วง {days} วันล่าสุด · <span class="status"></span>Ollama {'ทำงาน' if status['up'] else 'ไม่ตอบ'} · โมเดลในเครื่อง: {models_html} · ใน RAM ตอนนี้: {loaded_html}</p>
 
 <div class="kpis">{kpi_html}</div>
 
@@ -378,12 +386,76 @@ code{{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.85em}}
 </main></body></html>"""
 
 
+def refresh_file(days: int = 30, force: bool = False) -> Path | None:
+    """สร้าง reports/dashboard.html ใหม่ เรียกจาก evaluate/review/log หลังมีข้อมูลใหม่
+    ค่าเริ่มต้นทำเฉพาะเมื่อไฟล์มีอยู่แล้ว (ผู้ใช้เคยสร้าง dashboard) และไม่ทำให้งานหลักล้มถ้าผิดพลาด"""
+    out = OUT_DIR / "dashboard.html"
+    if not force and not out.is_file():
+        return None
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(build(days), encoding="utf-8")
+        return out
+    except Exception:  # noqa: BLE001
+        return None
+
+
+class _Handler(BaseHTTPRequestHandler):
+    days = 30
+    refresh = 30
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path.split("?")[0] not in ("/", "/index.html"):
+            self.send_response(404)
+            self.end_headers()
+            return
+        refresh = self.refresh
+        if "refresh=" in self.path:
+            try:
+                refresh = int(self.path.split("refresh=")[1].split("&")[0])
+            except ValueError:
+                pass
+        body = build(self.days, refresh=refresh).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt: str, *args) -> None:  # เงียบ
+        return
+
+
+def serve(port: int, days: int, refresh: int, open_browser: bool) -> ThreadingHTTPServer:
+    """เปิด server ที่ 127.0.0.1 เท่านั้น สร้างหน้าใหม่ทุกคำขอ คืน server ให้ผู้เรียก serve_forever หรือ shutdown"""
+    handler = type("Handler", (_Handler,), {"days": days, "refresh": refresh})
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    print(f"dashboard ที่ {url}  (สร้างหน้าใหม่ทุกคำขอ{f' และ refresh เองทุก {refresh}s' if refresh else ''}  กด Ctrl+C เพื่อหยุด)")
+    if open_browser:
+        threading.Timer(0.3, lambda: webbrowser.open(url)).start()
+    return server
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="สร้าง dashboard จาก log และผล eval")
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--open", action="store_true", help="เปิดในเบราว์เซอร์หลังสร้าง")
     parser.add_argument("--out", default=str(OUT_DIR / "dashboard.html"))
+    parser.add_argument("--serve", action="store_true", help="เปิด local server แทนการเขียนไฟล์")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--refresh", type=int, default=30, help="วินาทีที่หน้า refresh เอง (0 = ปิด)")
     args = parser.parse_args()
+    if args.serve:
+        server = serve(args.port, args.days, args.refresh, args.open)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nหยุด dashboard แล้ว")
+        finally:
+            server.server_close()
+        return
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(build(args.days), encoding="utf-8")
