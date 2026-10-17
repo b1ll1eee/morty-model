@@ -1,217 +1,114 @@
-# morty-model
+# Morty
 
-โครงโปรเจกต์ LLM ที่รันบนเครื่องตัวเองด้วย [Ollama](https://ollama.com) ฟรีทั้งหมด ข้อมูลไม่ออกนอกเครื่อง
-เขียนด้วย Python ออกแบบให้ย้ายไปใช้ Claude API ได้ภายหลังโดยแก้ไฟล์เดียว
+ผู้ช่วย AI ที่รันในเครื่องคุณเอง ฟรี ไม่ส่งข้อมูลออกไปไหน
+โมเดลกลางหนึ่งตัวบน [Ollama](https://ollama.com) แตกเป็น expert หลายด้านด้วยไฟล์ตั้งค่าไฟล์เดียว ไม่ต้องเทรนใหม่
 
-แนวคิดหลัก: **โมเดลกลางหนึ่งตัว แตกเป็น expert หลายด้านผ่าน profile** โดยไม่ต้องเทรนโมเดลใหม่
-ตอนนี้มี profile `general` (ผู้ช่วยทั่วไป) และ `dev` (expert สายพัฒนาซอฟต์แวร์ พร้อม RAG จากเอกสารใน `data/dev/`)
-
-## โครงสร้างระบบ
-
-```mermaid
-flowchart TB
-    U[ผู้ใช้ หรือโค้ด Python] --> CLI["python -m morty.chat --profile ชื่อ"]
-    CLI -->|เลือกครั้งละ 1 profile| G
-    CLI -->|เลือกครั้งละ 1 profile| D
-
-    subgraph P["ชั้น profile  (morty/profiles/*.toml)"]
-        G["general<br/>system prompt ทั่วไป<br/>temperature 0.7"]
-        D["dev<br/>system prompt สาย dev<br/>temperature 0.2, num_ctx 8192<br/>RAG: data/dev/ ผ่าน morty/rag.py"]
-        R["expert ถัดไป เช่น research<br/>(ยังไม่ทำ)"]
-    end
-
-    G -->|prompt + context| L
-    D -->|prompt + context| L
-    L["morty/llm.py<br/>จุดเดียวที่สลับ backend"]
-    L -->|ค่าเริ่มต้น| O["Ollama ในเครื่อง<br/>qwen2.5:7b (weight ชุดเดียว ทุก profile ใช้ร่วมกัน)"]
-    L -.->|เมื่อโมเดลในเครื่องไม่พอ| C["Claude API (สำรอง)"]
-
-    style R stroke-dasharray: 5 4
-    style L stroke:#0e7c6b,stroke-width:2px
+```
+คุณ> ในโปรเจกต์นี้ถ้าจะเพิ่ม expert ใหม่ต้องทำยังไง
+อ้างอิง: morty-project.md#2 (0.75)
+morty-dev> สร้างไฟล์ morty/profiles/<ชื่อ>.toml กำหนด title, system และ [options] ...
 ```
 
-วงจรทำให้ดีขึ้น: ใช้งานจริง → log → eval set (`evals/<profile>.jsonl`) → วัดผล → ปรับ prompt / RAG / โมเดล แล้ววนซ้ำ
-ทุกการเปลี่ยนแปลงต้องรัน eval เดิมซ้ำเพื่อดูจากตัวเลขว่าดีขึ้นหรือแย่ลง
-LoRA fine-tune เป็นทางแยกที่เปิดเมื่อ log สะสมได้หลายร้อยชุดขึ้นไปเท่านั้น
+## ทำอะไรได้บ้าง
 
-## ความต้องการของเครื่อง
+| | profile | เหมาะกับ |
+|---|---|---|
+| 💬 | `general` | ถามตอบทั่วไป สรุปความ ร่างข้อความ |
+| 🛠 | `dev` | เขียนโค้ด แก้บั๊ก ตอบจากเอกสารของทีมผ่าน RAG |
+| 🔍 | `reviewer` | ตรวจโค้ดหรือ `git diff` หาบั๊กและช่องโหว่ก่อน merge |
 
-- macOS บน Apple Silicon (ทดสอบบน MacBook Pro M4 RAM 24 GB)
-- Python 3.12 ขึ้นไป
-- พื้นที่ว่างประมาณ 20 GB สำหรับโมเดล (เครื่องนี้เก็บไว้ที่ `/Volumes/DEV/models/ollama` นอก repo)
+ทุก profile ใช้โมเดลกลางเดียวกัน (`qwen2.5:7b` ราว 5 GB) ต่างกันที่ system prompt, พารามิเตอร์ และเอกสารที่ค้นมาใส่ใน context
+ยกเว้น `reviewer` ที่ eval บอกว่าคุ้มจะใช้ `qwen3:14b` เพราะจับบั๊กที่ 7b พลาดได้ และงาน review ไม่ต้องการความเร็ว
 
-## ติดตั้งครั้งแรก
+## เริ่มใช้ใน 5 นาที
+
+ต้องมี macOS Apple Silicon, Python 3.12 ขึ้นไป และพื้นที่ว่างราว 20 GB (รวม `qwen3:14b` สำหรับ reviewer ดึงเพิ่มด้วย `ollama pull qwen3:14b`)
 
 ```bash
-# 1) ติดตั้ง Ollama (ถ้ามี Homebrew ใช้ brew install ollama ได้เลย)
-mkdir -p ~/.local/ollama ~/.local/bin
-curl -fsSL -o /tmp/ollama.tgz https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz
-tar -xzf /tmp/ollama.tgz -C ~/.local/ollama
-ln -sf ~/.local/ollama/ollama ~/.local/bin/ollama
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+brew install ollama && ollama serve &
+ollama pull qwen2.5:7b && ollama pull nomic-embed-text
 
-# 2) เลือกที่เก็บโมเดล (ค่าเริ่มต้นคือ ~/.ollama/models) โปรเจกต์นี้เก็บไว้บนดิสก์ DEV
-echo 'export OLLAMA_MODELS="/Volumes/DEV/models/ollama"' >> ~/.zshrc && source ~/.zshrc
-
-# 3) เปิด server แล้วดึงโมเดล
-ollama serve &
-ollama pull qwen2.5:7b          # โมเดลแชท ขนาดเล็ก ตอบเร็ว
-ollama pull qwen3:14b           # โมเดลแชท ฉลาดกว่า ใช้ RAM ราว 10 GB
-ollama pull nomic-embed-text    # โมเดล embedding สำหรับทำ RAG
-
-# 4) ติดตั้ง Python dependencies
-python3.12 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env
+
+.venv/bin/python -m morty.chat --profile dev
 ```
 
-## ใช้งาน
+## ใช้งานประจำวัน
 
 ```bash
-# แชทในเทอร์มินัล (จำบทสนทนาได้ พิมพ์ /quit เพื่อออก)
-.venv/bin/python -m morty.chat                  # profile general
-.venv/bin/python -m morty.chat --profile dev    # expert สาย dev
-.venv/bin/python -m morty.chat --model qwen3:14b
-
-# เรียกจากโค้ด
-.venv/bin/python examples_ask.py
-
-# RAG: ใส่เอกสารใน data/dev/ แล้วทำดัชนี (ทำซ้ำทุกครั้งที่เพิ่มหรือแก้ไฟล์)
-.venv/bin/python -m morty.rag index dev
-.venv/bin/python -m morty.rag search dev "เพิ่ม expert ใหม่ทำยังไง"   # ลองดูว่าค้นเจอท่อนไหน
-
-# รัน eval set ของ profile
-.venv/bin/python -m morty.evaluate dev
-.venv/bin/python -m morty.evaluate dev --no-rag                      # เทียบผลโดยไม่มี RAG
-.venv/bin/python -m morty.evaluate dev --model qwen3:14b --show
+.venv/bin/python -m morty.chat                        # แชทกับ Morty ตัวกลาง
+.venv/bin/python -m morty.chat --profile dev          # ปรึกษาเรื่องโค้ด
+git diff | .venv/bin/python -m morty.review           # ให้ reviewer ตรวจ diff ก่อน commit
+.venv/bin/python -m morty.review app.py --focus ความปลอดภัย
 ```
 
-คำสั่งในหน้าแชท
+ในแชทพิมพ์ `/profile reviewer` เพื่อสลับ expert กลางคัน หรือ `/model qwen3:14b` เพื่อสลับโมเดล
 
-| คำสั่ง | ความหมาย |
-|---|---|
-| `/reset` | ล้างบทสนทนา เริ่มใหม่ |
-| `/profile <ชื่อ>` | สลับ profile (ล้างบทสนทนาด้วย) พิมพ์ `/profile` เฉยๆ เพื่อดูรายชื่อ |
-| `/model <ชื่อ>` | สลับโมเดลกลางคัน |
-| `/quit` | ออก |
-
-เรียกจาก Python
+เรียกจากโค้ดได้ด้วย
 
 ```python
 from morty import llm
-
-llm.ask("สรุปข้อความนี้ให้หน่อย ...")                        # ถามตอบครั้งเดียว ด้วย profile general
-llm.ask("อ่านไฟล์ JSON ใน Python ยังไง", profile="dev")      # ใช้ system prompt และพารามิเตอร์ของ dev
-llm.chat([{"role": "user", "content": "สวัสดี"}])          # ส่งบทสนทนาเต็ม
-llm.embed(["ข้อความ 1", "ข้อความ 2"])                      # แปลงเป็นเวกเตอร์
+llm.ask("อ่านไฟล์ JSON ใน Python ยังไง", profile="dev")
 ```
 
-## Profile
+## ทำงานอย่างไร
 
-profile คือชั้นที่ซ้อนบนโมเดลกลางตัวเดียวกัน แต่ละตัวเป็นไฟล์ TOML ใน `morty/profiles/` กำหนด
-
-| ฟิลด์ | ความหมาย |
-|---|---|
-| `title` | ชื่อที่แสดงในหน้าแชท |
-| `system` | system prompt ของ expert ด้านนั้น |
-| `model` | (ไม่บังคับ) ใช้โมเดลคนละตัวกับค่าใน `.env` เช่น `qwen2.5-coder:7b` |
-| `data_dir` | (ไม่บังคับ) โฟลเดอร์เอกสารสำหรับ RAG เช่น `data/dev` |
-| `[rag]` | (ไม่บังคับ) `enabled`, `top_k` จำนวนท่อนที่แนบ, `min_score` ความคล้ายขั้นต่ำ |
-| `[options]` | พารามิเตอร์ส่งให้ Ollama เช่น `temperature`, `num_ctx` |
-
-เพิ่ม expert ใหม่ = เพิ่มไฟล์ `.toml` หนึ่งไฟล์ + ไฟล์ `evals/<ชื่อ>.jsonl` ไม่ต้องแก้โค้ด
-ตั้ง profile เริ่มต้นได้ที่ `MORTY_PROFILE=` ใน `.env`
-
-## RAG
-
-`morty/rag.py` ทำดัชนีไฟล์ข้อความและโค้ดใน `data/<profile>/` ด้วย `nomic-embed-text`
-เก็บไว้ที่ `data/<profile>/.morty-index.json` (ไม่ commit) ไฟล์ที่ไม่เปลี่ยนจะไม่ถูกคำนวณซ้ำ
-ตอนถาม ระบบจะค้นท่อนที่คล้ายคำถามที่สุด `top_k` ท่อนที่คะแนนถึง `min_score` แล้วแนบไปกับคำถามพร้อมหมายเลขอ้างอิง
-หน้าแชทจะแสดงบรรทัด `อ้างอิง: ...` ว่าใช้ท่อนไหนบ้าง ถ้าไม่มีท่อนที่ถึงเกณฑ์จะถามโมเดลตามปกติ
-
-ค่าเริ่มต้นของ dev คือ `top_k = 4`, `min_score = 0.6` (nomic ให้คะแนนพื้นราว 0.45 ถึง 0.55 แม้เนื้อหาไม่เกี่ยวกัน)
-ใช้ Python ล้วนคำนวณ cosine similarity พอสำหรับเอกสารหลักร้อยถึงหลักพันท่อน ถ้าใหญ่กว่านั้นค่อยย้ายไป vector DB
-
-`data/dev/morty-project.md` เป็นไฟล์ตัวอย่างเดียวที่ commit ไว้ เพื่อให้ morty-dev ตอบคำถามเกี่ยวกับโปรเจกต์นี้ได้
-และเป็นตัวพิสูจน์ว่า RAG ทำงาน: คำถาม `morty-*` ใน eval ตอบไม่ได้ถ้าไม่มี RAG
-
-## Eval
-
-`evals/<profile>.jsonl` หนึ่งบรรทัดต่อหนึ่งข้อ
-
-```json
-{"id": "py-json", "q": "คำถาม", "expect_any": ["คำที่ควรมีอย่างน้อยหนึ่งคำ"], "expect_all": ["คำที่ต้องมีทุกคำ"], "thai": true}
+```mermaid
+flowchart TB
+    U[ผู้ใช้ หรือโค้ด Python] --> CLI["morty.chat / morty.review  --profile ชื่อ"]
+    CLI --> G["general"]
+    CLI --> D["dev<br/>+ RAG จาก data/dev/"]
+    CLI --> R["reviewer<br/>รับโค้ดหรือ diff"]
+    G & D & R --> L["morty/llm.py<br/>จุดเดียวที่คุยกับโมเดล"]
+    L --> O["Ollama ในเครื่อง<br/>qwen2.5:7b"]
+    L -.->|เมื่อจำเป็น| C["Claude API"]
+    style L stroke:#0e7c6b,stroke-width:2px
 ```
 
-การตรวจเป็นแบบหยาบ (หาคำในคำตอบ) ไว้จับการถดถอยเวลาแก้ prompt หรือสลับโมเดล ไม่ได้แทนการอ่านคำตอบจริง
+ทุกการเปลี่ยนแปลง ไม่ว่าแก้ prompt เพิ่มเอกสาร หรือสลับโมเดล ต้องผ่าน eval ชุดเดิมก่อน
 
-ผลล่าสุดบน `qwen2.5:7b` (17 ต.ค. 2026): RAG เปิด 12/12, RAG ปิด 9/12 โดย 2 ข้อที่ตกเป็นคำถามเกี่ยวกับโปรเจกต์ที่โมเดลไม่มีทางรู้เอง
-และอีก 1 ข้อโมเดลเผลอตอบเป็นภาษาอังกฤษ ซึ่งเกิดเป็นครั้งคราว ยังไม่ถือว่าแก้แล้ว
-ผลแต่ละครั้งถูกเก็บไว้ที่ `evals/results/` (ไม่ commit) เพื่อเทียบย้อนหลังและเป็นวัตถุดิบ fine-tune ในอนาคต
+```bash
+.venv/bin/python -m morty.evaluate dev                                  # 12 ข้อ ผ่านกี่ข้อ ใช้เวลาเท่าไร
+.venv/bin/python -m morty.evaluate dev --models qwen2.5:7b,qwen3:14b    # เทียบโมเดลในรอบเดียว
+```
 
-## โครงสร้างโปรเจกต์
+ผลล่าสุด (17 ต.ค. 2026)
+
+| eval | `qwen2.5:7b` | `qwen3:14b` | ตัดสินใจ |
+|---|---|---|---|
+| dev 12 ข้อ | 12/12, 16s ต่อข้อ | 12/12, 42s ต่อข้อ | dev ใช้ 7b เร็วกว่าเกือบ 3 เท่าโดยคะแนนเท่ากัน |
+| reviewer 11 ข้อ | 9/11, 11s ต่อข้อ | 10/11, 21s ต่อข้อ | reviewer ใช้ 14b เพราะจับ bare except และ secret ที่ฝังในโค้ดได้ |
+
+RAG ทำให้ dev ขึ้นจาก 9/12 เป็น 12/12 ในคำถามเกี่ยวกับโปรเจกต์ รายละเอียดอยู่ใน `docs/reference.md`
+
+## เพิ่ม expert ของคุณเอง
+
+1. สร้าง `morty/profiles/<ชื่อ>.toml` ใส่ `title`, `system` และ `[options]` (คัดลอกจาก `dev.toml` ได้)
+2. ถ้าอยากให้รู้เอกสารของคุณ ใส่ไฟล์ลง `data/<ชื่อ>/` แล้วรัน `python -m morty.rag index <ชื่อ>`
+3. เขียน `evals/<ชื่อ>.jsonl` สัก 10 ข้อ แล้วรัน `python -m morty.evaluate <ชื่อ>`
+
+ไม่ต้องแก้โค้ด Python แม้แต่บรรทัดเดียว
+
+## โครงสร้าง
 
 ```
 morty/
-  config.py      อ่านค่าจาก .env (โมเดล, host, profile เริ่มต้น)
-  llm.py         chat / chat_stream / ask / embed  จุดเดียวที่ต้องแก้ถ้าจะย้ายไป Claude API
-  profiles.py    โหลด profile จาก profiles/*.toml
-  profiles/
-    general.toml Morty ตัวกลาง
-    dev.toml     expert สาย dev (เปิด RAG)
-  rag.py         ทำดัชนีเอกสารใน data/<profile>/ และค้นท่อนที่เกี่ยวข้อง
-  chat.py        แชท CLI แบบจำบทสนทนา สลับ profile ได้ แนบ RAG อัตโนมัติ
-  evaluate.py    รัน eval set แล้วสรุปคะแนน
-evals/
-  dev.jsonl      คำถามทดสอบของ profile dev (12 ข้อ)
-  results/       ผลการรันแต่ละครั้ง (ไม่ commit)
-examples_ask.py  ตัวอย่างเรียกใช้จากโค้ด
-data/
-  dev/           เอกสารสำหรับ RAG ของ dev (ไม่ commit ยกเว้น morty-project.md)
-    morty-project.md   ตัวอย่างเอกสาร: คู่มือโปรเจกต์นี้เอง
-    .morty-index.json  ดัชนี embedding (สร้างด้วย morty.rag index)
-.env             ค่าตั้งค่าของเครื่องนี้ (ไม่ commit)
-.env.example     แม่แบบค่าตั้งค่า
+  llm.py          ชั้นเดียวที่คุยกับโมเดล ย้ายไป Claude API ได้โดยแก้ไฟล์นี้ไฟล์เดียว
+  profiles/       general.toml  dev.toml  reviewer.toml
+  rag.py          ทำดัชนีและค้นเอกสารใน data/<profile>/
+  chat.py         แชท CLI
+  review.py       ส่งไฟล์หรือ diff ให้ reviewer
+  evaluate.py     รัน eval และเทียบโมเดล
+evals/            คำถามทดสอบต่อ profile
+data/dev/         เอกสารของทีมสำหรับ RAG (ไม่ commit)
+docs/reference.md รายละเอียดการตั้งค่า RAG, eval, ผลเทียบโมเดล, ที่เก็บโมเดล
 ```
 
-## สลับโมเดล
+## แผนต่อไป
 
-แก้บรรทัด `MORTY_MODEL=` ใน `.env` หรือใส่ `--model` ตอนรัน หรือใส่ `model =` ในไฟล์ profile
-ดูรายชื่อโมเดลที่มีด้วย `ollama list` และดึงเพิ่มด้วย `ollama pull <ชื่อ>`
+- ใช้งานจริง เก็บคำถามที่ตอบไม่ดีมาเพิ่มใน eval และขยายเอกสารใน `data/dev/`
+- เพิ่ม expert ด้านอื่น เช่น research เมื่อ dev และ reviewer นิ่งแล้ว
+- LoRA fine-tune ด้วย MLX เมื่อมี log สะสมมากพอ และต้องชนะ profile + RAG บน eval เดิมเท่านั้น
 
-แนวทางเลือกโมเดลบนเครื่อง RAM 24 GB
-
-| โมเดล | RAM ที่ใช้ | เหมาะกับ |
-|---|---|---|
-| `qwen2.5:7b` | ~5 GB | **โมเดลกลางปัจจุบัน** พัฒนาและทดสอบประจำวัน ตอบเร็ว |
-| `qwen2.5-coder:7b` | ~5 GB | ไม่แนะนำสำหรับงานนี้ ผล eval ไม่ดีกว่าและหลุดตอบอังกฤษบ่อยกว่า |
-| `qwen3:14b` | ~10 GB | ใช้เฉพาะงานยากด้วย `--model qwen3:14b` ช้ากว่าราว 2.7 เท่า |
-| `qwen3:32b` | ~20 GB | ยังไม่ได้ลอง ช้าและกิน RAM เกือบหมด |
-
-### ผลเทียบโมเดล (ระยะ 3, 17 ต.ค. 2026)
-
-eval dev 12 ข้อ RAG เปิด ปิดโหมดคิดยาวของ qwen3 บน MacBook Pro M4 24 GB
-เวลาตัดข้อแรกของแต่ละโมเดลออกเพราะรวมเวลาโหลด weight จากดิสก์ (2.5 ถึง 4.7 นาที)
-
-| โมเดล | ผ่าน | เวลาเฉลี่ยต่อข้อ | ช้าสุด | ข้อที่ตก |
-|---|---|---|---|---|
-| `qwen2.5:7b` | 12/12 | 15.8s | 25s | - |
-| `qwen2.5-coder:7b` | 11/12 | 14.7s | 29s | sql-having ตอบเป็นอังกฤษ |
-| `qwen3:14b` | 12/12 | 42.4s | 71s | - |
-
-ข้อสรุป: คง `qwen2.5:7b` เป็นโมเดลกลาง เพราะได้คะแนนเต็มเท่า 14b แต่เร็วกว่าเกือบ 3 เท่า
-eval ชุดนี้ยังหยาบเกินกว่าจะวัด "ความลึก" ของคำตอบ ถ้าในอนาคตเจองานที่ 7b ตอบไม่ได้ ให้เพิ่มคำถามนั้นเข้า eval แล้วเทียบใหม่
-สคริปต์: `python -m morty.evaluate dev --models qwen2.5:7b,qwen2.5-coder:7b,qwen3:14b`
-
-## แผนงาน
-
-| ระยะ | งาน | สถานะ |
-|---|---|---|
-| 0 | Scaffold: Ollama, `llm.py`, แชท CLI | เสร็จแล้ว |
-| 1 | Profile `general` + `dev`, flag `--profile`, eval set สาย dev 10 ข้อ | เสร็จแล้ว |
-| 2 | RAG สำหรับ dev: `morty/rag.py` ทำดัชนี `data/dev/` แนบท่อนที่เกี่ยวข้องให้อัตโนมัติ eval มี `--no-rag` ไว้เทียบ | เสร็จแล้ว |
-| 3 | เลือกโมเดลกลางจากตัวเลข: เทียบ 3 โมเดลบน eval เดียวกัน คง `qwen2.5:7b` (ดูตารางผลเทียบด้านบน) | เสร็จแล้ว |
-| 4 | ใช้งานจริงและสะสม log เพิ่มคำถามที่ตอบผิดเข้า eval ขยายเอกสารใน `data/dev/` | ถัดไป |
-| 5 | LoRA fine-tune ด้วย MLX เมื่อ log สะสมมากพอ ต้องชนะ profile + RAG บน eval เดิมถึงจะใช้ | ภายหลัง |
-
-หลักข้อเดียวที่ยึด: ไม่เปลี่ยนอะไรโดยไม่มี eval รองรับ และไม่ขึ้นชั้นที่แพงกว่าถ้าชั้นที่ถูกกว่ายังไม่ได้ลองจนสุด
+หลักข้อเดียว: ไม่เปลี่ยนอะไรโดยไม่มี eval รองรับ และไม่ขึ้นชั้นที่แพงกว่าถ้าชั้นที่ถูกกว่ายังไม่ได้ลองจนสุด

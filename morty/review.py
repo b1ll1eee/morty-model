@@ -1,0 +1,100 @@
+"""ส่งโค้ดให้ morty-reviewer ตรวจทาน
+
+ใช้งาน:  .venv/bin/python -m morty.review path/to/file.py [อีกหลายไฟล์]
+         git diff | .venv/bin/python -m morty.review              # อ่าน diff จาก stdin
+         .venv/bin/python -m morty.review --diff                   # เท่ากับ git diff ของไฟล์ที่ยังไม่ staged
+         .venv/bin/python -m morty.review --diff --staged          # เฉพาะที่ staged แล้ว
+         .venv/bin/python -m morty.review app.py --model qwen3:14b --focus "ความปลอดภัย"
+
+ไฟล์จะถูกใส่เลขบรรทัดให้ เพื่อให้ reviewer อ้างอิงบรรทัดได้แม่นยำ
+"""
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+from rich.console import Console
+
+from . import config, llm, profiles
+
+MAX_CHARS = 60_000  # เกินนี้โมเดล 7b เริ่มลืมส่วนต้น ควรแบ่งไฟล์
+
+
+def numbered(text: str) -> str:
+    lines = text.splitlines()
+    width = len(str(len(lines)))
+    return "\n".join(f"{i + 1:>{width}} | {line}" for i, line in enumerate(lines))
+
+
+def build_prompt(sections: list[tuple[str, str, bool]], focus: str | None) -> str:
+    """sections = [(ชื่อ, เนื้อหา, ใส่เลขบรรทัดไหม)]"""
+    parts = ["ทบทวนโค้ดต่อไปนี้ตามรูปแบบที่กำหนด"]
+    if focus:
+        parts.append(f"ให้น้ำหนักเป็นพิเศษกับ: {focus}")
+    for name, body, number_lines in sections:
+        lang = Path(name).suffix.lstrip(".") or ""
+        content = numbered(body) if number_lines else body
+        parts.append(f"### {name}\n```{lang}\n{content}\n```")
+    return "\n\n".join(parts)
+
+
+def collect(args) -> list[tuple[str, str, bool]]:
+    sections: list[tuple[str, str, bool]] = []
+    if args.diff:
+        cmd = ["git", "diff"] + (["--staged"] if args.staged else [])
+        out = subprocess.run(cmd, capture_output=True, text=True, cwd=config.ROOT, check=True).stdout
+        if not out.strip():
+            raise SystemExit("git diff ว่างเปล่า ไม่มีอะไรให้ตรวจ")
+        sections.append(("git diff" + (" --staged" if args.staged else ""), out, False))
+    for p in args.paths:
+        path = Path(p)
+        if not path.is_file():
+            raise SystemExit(f"ไม่พบไฟล์: {p}")
+        sections.append((p, path.read_text(encoding="utf-8", errors="replace"), True))
+    if not sections and not sys.stdin.isatty():
+        data = sys.stdin.read()
+        if data.strip():
+            is_diff = data.lstrip().startswith(("diff --git", "--- ", "+++ ", "@@"))
+            sections.append(("stdin (diff)" if is_diff else "stdin", data, not is_diff))
+    if not sections:
+        raise SystemExit("ไม่มีโค้ดให้ตรวจ ระบุไฟล์, ใช้ --diff หรือ pipe เข้ามาทาง stdin")
+    return sections
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="ส่งโค้ดให้ morty-reviewer ตรวจทาน")
+    parser.add_argument("paths", nargs="*", help="ไฟล์ที่ต้องการให้ตรวจ")
+    parser.add_argument("--diff", action="store_true", help="ตรวจ git diff ของ repo นี้")
+    parser.add_argument("--staged", action="store_true", help="ใช้คู่กับ --diff เอาเฉพาะที่ staged")
+    parser.add_argument("--profile", default="reviewer", choices=profiles.names())
+    parser.add_argument("--model", default=None, help="ทับโมเดลของ profile เช่น qwen3:14b")
+    parser.add_argument("--focus", default=None, help="ประเด็นที่อยากให้เน้น เช่น ความปลอดภัย")
+    args = parser.parse_args()
+
+    console = Console(stderr=True)
+    prof = profiles.load(args.profile)
+    model = args.model or prof.model or config.MODEL
+    sections = collect(args)
+    prompt = build_prompt(sections, args.focus)
+    if len(prompt) > MAX_CHARS:
+        console.print(f"[yellow]คำเตือน:[/] โค้ดยาว {len(prompt):,} ตัวอักษร เกิน {MAX_CHARS:,} โมเดลอาจตรวจไม่ทั่ว ควรแบ่งไฟล์")
+
+    names = ", ".join(s[0] for s in sections)
+    console.print(f"[bold green]{prof.title}[/] ตรวจ [cyan]{names}[/] ด้วย [magenta]{model}[/]")
+    messages: list[llm.Message] = [
+        {"role": "system", "content": prof.system},
+        {"role": "user", "content": prompt},
+    ]
+    try:
+        for piece in llm.chat_stream(messages, model=model, **dict(prof.options)):
+            sys.stdout.write(piece)
+            sys.stdout.flush()
+    except KeyboardInterrupt:
+        pass
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()
