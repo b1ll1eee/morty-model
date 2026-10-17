@@ -13,11 +13,12 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from rich.console import Console
 
-from . import config, llm, profiles
+from . import config, llm, log, profiles
 
 MAX_CHARS = 60_000  # เกินนี้โมเดล 7b เริ่มลืมส่วนต้น ควรแบ่งไฟล์
 
@@ -87,13 +88,21 @@ def main() -> None:
         {"role": "system", "content": prof.system},
         {"role": "user", "content": prompt},
     ]
+    parts_out: list[str] = []
+    t0 = time.perf_counter()
     try:
         for piece in llm.chat_stream(messages, model=model, **dict(prof.options)):
+            parts_out.append(piece)
             sys.stdout.write(piece)
             sys.stdout.flush()
     except KeyboardInterrupt:
         pass
     sys.stdout.write("\n")
+    event_id = log.record(
+        source="review", profile=prof.name, model=model, question=prompt, answer="".join(parts_out),
+        seconds=time.perf_counter() - t0, refs=[s[0] for s in sections],
+    )
+    console.print(f"[dim]บันทึก log {event_id}  ถ้าผลไม่ดี: python -m morty.log rate {event_id} bad \"เหตุผล\"[/]")
 
 
 if __name__ == "__main__":

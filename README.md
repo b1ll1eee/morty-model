@@ -44,6 +44,7 @@ git diff | .venv/bin/python -m morty.review           # ให้ reviewer ต�
 ```
 
 ในแชทพิมพ์ `/profile reviewer` เพื่อสลับ expert กลางคัน หรือ `/model qwen3:14b` เพื่อสลับโมเดล
+ถ้าคำตอบไหนไม่ดี พิมพ์ `/bad เหตุผล` ระบบจะติดธงไว้ใน log เพื่อนำกลับมาเป็น eval
 
 เรียกจากโค้ดได้ด้วย
 
@@ -66,9 +67,12 @@ flowchart TB
     style L stroke:#0e7c6b,stroke-width:2px
 ```
 
-ทุกการเปลี่ยนแปลง ไม่ว่าแก้ prompt เพิ่มเอกสาร หรือสลับโมเดล ต้องผ่าน eval ชุดเดิมก่อน
+ทุกคู่ถามตอบถูกบันทึกลง `logs/` ในเครื่อง คำตอบที่ติดธง `/bad` คือวัตถุดิบของ eval ข้อถัดไป
+และทุกการเปลี่ยนแปลง ไม่ว่าแก้ prompt เพิ่มเอกสาร หรือสลับโมเดล ต้องผ่าน eval ชุดเดิมก่อน
 
 ```bash
+.venv/bin/python -m morty.log bad                                       # ดูคำตอบที่ติดธงไว้
+.venv/bin/python -m morty.log to-eval dev >> evals/dev.jsonl            # แปลงเป็นข้อสอบ แล้วเติมคำตอบที่คาดหวัง
 .venv/bin/python -m morty.evaluate dev                                  # 12 ข้อ ผ่านกี่ข้อ ใช้เวลาเท่าไร
 .venv/bin/python -m morty.evaluate dev --models qwen2.5:7b,qwen3:14b    # เทียบโมเดลในรอบเดียว
 ```
@@ -100,14 +104,16 @@ morty/
   chat.py         แชท CLI
   review.py       ส่งไฟล์หรือ diff ให้ reviewer
   evaluate.py     รัน eval และเทียบโมเดล
+  log.py          บันทึกการใช้งาน ให้คะแนน และแปลงเคสแย่เป็น eval
 evals/            คำถามทดสอบต่อ profile
+logs/             บันทึกการใช้งานจริงรายวัน (ไม่ commit)
 data/dev/         เอกสารของทีมสำหรับ RAG (ไม่ commit)
 docs/reference.md รายละเอียดการตั้งค่า RAG, eval, ผลเทียบโมเดล, ที่เก็บโมเดล
 ```
 
 ## แผนต่อไป
 
-- ใช้งานจริง เก็บคำถามที่ตอบไม่ดีมาเพิ่มใน eval และขยายเอกสารใน `data/dev/`
+- ใช้งานจริง ติดธง `/bad` เมื่อตอบไม่ดี แล้วแปลงเป็น eval ด้วย `morty.log to-eval` และขยายเอกสารใน `data/dev/`
 - เพิ่ม expert ด้านอื่น เช่น research เมื่อ dev และ reviewer นิ่งแล้ว
 - LoRA fine-tune ด้วย MLX เมื่อมี log สะสมมากพอ และต้องชนะ profile + RAG บน eval เดิมเท่านั้น
 

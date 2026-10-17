@@ -5,14 +5,17 @@
          .venv/bin/python -m morty.chat --model qwen3:14b
 คำสั่งในแชท:  /reset ล้างบทสนทนา   /model <ชื่อ> สลับโมเดล
               /profile <ชื่อ> สลับ profile (ล้างบทสนทนาด้วย)   /quit ออก
+              /bad [เหตุผล] ติดธงว่าคำตอบล่าสุดไม่ดี   /good ติดธงว่าดี
 ถ้า profile มีดัชนี RAG (python -m morty.rag index <ชื่อ>) จะแนบเอกสารที่เกี่ยวข้องให้อัตโนมัติ
+ทุกคู่ถามตอบถูกบันทึกลง logs/ (ปิดด้วย MORTY_LOG=0) ดูด้วย python -m morty.log show
 """
 import argparse
 import sys
+import time
 
 from rich.console import Console
 
-from . import config, llm, profiles, rag
+from . import config, llm, log, profiles, rag
 
 console = Console()
 
@@ -40,6 +43,7 @@ def main() -> None:
         )
 
     banner()
+    last_id: str | None = None
 
     while True:
         try:
@@ -58,6 +62,15 @@ def main() -> None:
         if user.startswith("/model "):
             model = user.split(maxsplit=1)[1]
             console.print(f"[dim]สลับไปใช้ {model}[/]")
+            continue
+        if user.startswith(("/bad", "/good")):
+            if not last_id:
+                console.print("[dim]ยังไม่มีคำตอบให้ให้คะแนน[/]")
+                continue
+            parts = user.split(maxsplit=1)
+            rating = parts[0].lstrip("/")
+            log.rate(last_id, rating, parts[1] if len(parts) > 1 else "")
+            console.print(f"[dim]บันทึกแล้วว่าคำตอบล่าสุด {rating}[/]")
             continue
         if user.startswith("/profile"):
             parts = user.split(maxsplit=1)
@@ -83,6 +96,7 @@ def main() -> None:
             console.print("[dim]อ้างอิง: " + ", ".join(f"{h.path}#{h.chunk + 1} ({h.score:.2f})" for h in hits) + "[/]")
         console.print(f"[bold green]{profile.title}>[/] ", end="")
         parts_out: list[str] = []
+        t0 = time.perf_counter()
         try:
             for piece in llm.chat_stream(outgoing, model=model, **options):
                 parts_out.append(piece)
@@ -92,7 +106,12 @@ def main() -> None:
             history.pop()
             continue
         console.print()
-        history.append({"role": "assistant", "content": "".join(parts_out)})
+        answer = "".join(parts_out)
+        history.append({"role": "assistant", "content": answer})
+        last_id = log.record(
+            source="chat", profile=profile.name, model=model, question=user, answer=answer,
+            seconds=time.perf_counter() - t0, refs=[f"{h.path}#{h.chunk + 1}" for h in hits],
+        )
 
 
 if __name__ == "__main__":

@@ -88,12 +88,35 @@ MacBook Pro M4 24 GB, eval dev 12 ข้อ, RAG เปิด, ปิดโห�
 สองข้อที่ 7b พลาดเป็นเรื่องที่ reviewer ต้องจับได้ จึงตั้งให้ profile reviewer ใช้ `qwen3:14b`
 ส่วน 14b มีแนวโน้ม false positive กับโค้ดที่ไม่มีปัญหา ต้องอ่านผลด้วยวิจารณญาณ ใช้เป็นด่านแรกก่อนคนอ่าน ไม่ใช่ด่านตัดสิน
 
+## Log การใช้งาน
+
+`morty/log.py` บันทึกทุกคู่ถามตอบจากแชทและ review ลง `logs/YYYY-MM-DD.jsonl` แบบ append อย่างเดียว (ปิดด้วย `MORTY_LOG=0`)
+eval ไม่ถูกบันทึกเพื่อไม่ให้ปน
+
+```json
+{"type": "exchange", "id": "a1b2c3d4e5f6", "ts": "...", "source": "chat", "profile": "dev", "model": "qwen2.5:7b",
+ "question": "...", "answer": "...", "seconds": 12.3, "refs": ["morty-project.md#2"]}
+{"type": "rating", "ref": "a1b2c3d4e5f6", "ts": "...", "rating": "bad", "note": "ตอบเป็นอังกฤษ"}
+```
+
+| คำสั่ง | ทำอะไร |
+|---|---|
+| ในแชท `/bad เหตุผล`, `/good` | ให้คะแนนคำตอบล่าสุด |
+| `python -m morty.log rate <id> bad "เหตุผล"` | ให้คะแนนย้อนหลัง (id แสดงท้ายผล review) |
+| `python -m morty.log show [-n 50] [--profile dev]` | รายการล่าสุด |
+| `python -m morty.log bad` | เฉพาะที่ติดธง bad พร้อมคำถามและคำตอบ |
+| `python -m morty.log to-eval dev` | แปลงเคส bad เป็นบรรทัด eval ให้ไปเติม `expect_any` |
+| `python -m morty.log stats` | จำนวนต่อ profile และโมเดล พร้อม good/bad |
+
+log ชุดนี้คือชุดข้อมูลตั้งต้นของ LoRA fine-tune ในอนาคต คู่ที่ติดธง good ใช้เป็นตัวอย่างสอน คู่ที่ติดธง bad ใช้เป็น eval
+
 ## คำสั่งในหน้าแชท
 
 | คำสั่ง | ความหมาย |
 |---|---|
 | `/profile <ชื่อ>` | สลับ profile (ล้างบทสนทนาด้วย) พิมพ์ `/profile` เฉยๆ เพื่อดูรายชื่อ |
 | `/model <ชื่อ>` | สลับโมเดลกลางคัน |
+| `/bad [เหตุผล]`, `/good` | ติดธงคำตอบล่าสุดลง log |
 | `/reset` | ล้างบทสนทนา |
 | `/quit` | ออก |
 
