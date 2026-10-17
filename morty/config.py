@@ -13,3 +13,5 @@ SYSTEM_PROMPT = os.getenv(
     "MORTY_SYSTEM_PROMPT",
     "คุณคือ Morty ผู้ช่วย AI ที่ตอบเป็นภาษาไทยอย่างกระชับและถูกต้อง",
 )
+# profile เริ่มต้น (ดูรายชื่อใน morty/profiles/)
+PROFILE = os.getenv("MORTY_PROFILE", "general")

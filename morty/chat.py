@@ -1,30 +1,43 @@
 """แชทกับโมเดลในเทอร์มินัล แบบจำบทสนทนาได้
 
 ใช้งาน:  .venv/bin/python -m morty.chat
+         .venv/bin/python -m morty.chat --profile dev
          .venv/bin/python -m morty.chat --model qwen3:14b
-คำสั่งในแชท:  /reset ล้างบทสนทนา   /model <ชื่อ> สลับโมเดล   /quit ออก
+คำสั่งในแชท:  /reset ล้างบทสนทนา   /model <ชื่อ> สลับโมเดล
+              /profile <ชื่อ> สลับ profile (ล้างบทสนทนาด้วย)   /quit ออก
 """
 import argparse
 import sys
 
 from rich.console import Console
-from rich.markdown import Markdown
 
-from . import config, llm
+from . import config, llm, profiles
 
 console = Console()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="แชทกับ Morty")
-    parser.add_argument("--model", default=config.MODEL, help="ชื่อโมเดลใน Ollama")
-    parser.add_argument("--system", default=config.SYSTEM_PROMPT, help="system prompt")
+    parser.add_argument(
+        "--profile", default=profiles.DEFAULT, choices=profiles.names(),
+        help="profile ของผู้ช่วย (ค่าเริ่มต้นจาก MORTY_PROFILE ใน .env)",
+    )
+    parser.add_argument("--model", default=None, help="ชื่อโมเดลใน Ollama (ทับค่าของ profile)")
+    parser.add_argument("--system", default=None, help="system prompt (ทับค่าของ profile)")
     args = parser.parse_args()
 
-    model = args.model
-    history: list[llm.Message] = [{"role": "system", "content": args.system}]
+    profile = profiles.load(args.profile)
+    model = args.model or profile.model or config.MODEL
+    options = dict(profile.options)
+    history: list[llm.Message] = [{"role": "system", "content": args.system or profile.system}]
 
-    console.print(f"[bold green]Morty[/] กำลังใช้โมเดล [cyan]{model}[/]  (พิมพ์ /quit เพื่อออก)")
+    def banner() -> None:
+        console.print(
+            f"[bold green]{profile.title}[/] profile [magenta]{profile.name}[/] "
+            f"โมเดล [cyan]{model}[/]  (พิมพ์ /quit เพื่อออก)"
+        )
+
+    banner()
 
     while True:
         try:
@@ -44,20 +57,35 @@ def main() -> None:
             model = user.split(maxsplit=1)[1]
             console.print(f"[dim]สลับไปใช้ {model}[/]")
             continue
+        if user.startswith("/profile"):
+            parts = user.split(maxsplit=1)
+            if len(parts) == 1:
+                console.print(f"[dim]profile ที่มี: {', '.join(profiles.names())}[/]")
+                continue
+            try:
+                profile = profiles.load(parts[1])
+            except KeyError as e:
+                console.print(f"[red]{e}[/]")
+                continue
+            model = args.model or profile.model or config.MODEL
+            options = dict(profile.options)
+            history = [{"role": "system", "content": profile.system}]
+            banner()
+            continue
 
         history.append({"role": "user", "content": user})
-        console.print("[bold green]Morty>[/] ", end="")
-        parts: list[str] = []
+        console.print(f"[bold green]{profile.title}>[/] ", end="")
+        parts_out: list[str] = []
         try:
-            for piece in llm.chat_stream(history, model=model):
-                parts.append(piece)
+            for piece in llm.chat_stream(history, model=model, **options):
+                parts_out.append(piece)
                 console.print(piece, end="", highlight=False, markup=False)
         except Exception as e:  # noqa: BLE001
             console.print(f"\n[red]เกิดข้อผิดพลาด:[/] {e}")
             history.pop()
             continue
         console.print()
-        history.append({"role": "assistant", "content": "".join(parts)})
+        history.append({"role": "assistant", "content": "".join(parts_out)})
 
 
 if __name__ == "__main__":

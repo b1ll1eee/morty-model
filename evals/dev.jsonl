@@ -1,0 +1,10 @@
+{"id": "py-json", "q": "Python: อ่านไฟล์ config.json มาเป็น dict ทำยังไง", "expect_any": ["json.load"], "thai": true}
+{"id": "git-restore", "q": "git: แก้ไฟล์ไปแล้วแต่ยังไม่ได้ commit อยากย้อนไฟล์นั้นกลับไปเหมือนเดิม ใช้คำสั่งอะไร", "expect_any": ["git restore", "git checkout"], "thai": true}
+{"id": "py-list-tuple", "q": "list กับ tuple ใน Python ต่างกันยังไง ตอบสั้นๆ", "expect_any": ["immutable", "เปลี่ยนแปลง", "แก้ไข"], "thai": true}
+{"id": "py-average", "q": "เขียนฟังก์ชัน Python รับ list ของตัวเลข คืนค่าเฉลี่ย ถ้า list ว่างให้คืน 0", "expect_all": ["def "], "expect_any": ["sum(", "statistics.mean", "fmean"], "thai": true}
+{"id": "http-404-500", "q": "HTTP 404 กับ 500 ต่างกันยังไง", "expect_any": ["not found", "ไม่พบ", "หาไม่เจอ"], "thai": true}
+{"id": "sql-having", "q": "SQL: มีตาราง customers(id, name) และ orders(id, customer_id) อยากได้ชื่อลูกค้าที่สั่งซื้อมากกว่า 5 ครั้ง เขียน query ให้หน่อย", "expect_any": ["having", "count("], "thai": true}
+{"id": "js-equality", "q": "JavaScript: == กับ === ต่างกันยังไง", "expect_any": ["type", "ชนิด", "ประเภท"], "thai": true}
+{"id": "docker-ps", "q": "Docker: คำสั่งดู container ที่กำลังรันอยู่", "expect_any": ["docker ps", "docker container ls"], "thai": true}
+{"id": "py-syntax-bug", "q": "โค้ดนี้ผิดตรงไหน\nfor i in range(10)\n    print(i)", "expect_any": ["colon", "โคลอน", "range(10):"], "thai": true}
+{"id": "py-dict-bigo", "q": "ค้นหา key ใน dict ของ Python มี time complexity เท่าไร เพราะอะไร", "expect_any": ["o(1)", "คงที่", "constant", "hash"], "thai": true}

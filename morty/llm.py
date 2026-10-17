@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 import ollama
 
-from . import config
+from . import config, profiles
 
 Message = dict[str, str]  # {"role": "system" | "user" | "assistant", "content": "..."}
 
@@ -29,11 +29,21 @@ def chat_stream(messages: list[Message], model: str | None = None, **options) ->
         yield chunk["message"]["content"]
 
 
-def ask(prompt: str, system: str | None = None, **kw) -> str:
-    """ทางลัด: ถามคำถามเดียว ได้คำตอบเดียว"""
+def ask(prompt: str, system: str | None = None, profile: str | None = None, **kw) -> str:
+    """ทางลัด: ถามคำถามเดียว ได้คำตอบเดียว
+
+    profile="dev" จะใช้ system prompt, โมเดล และพารามิเตอร์ของ profile นั้น
+    ค่าที่ส่งมาตรงๆ (system=, model=, temperature=) มีสิทธิ์เหนือกว่า profile เสมอ
+    """
+    options: dict = {}
+    if profile:
+        p = profiles.load(profile)
+        system = system or p.system
+        options = {**p.options, "model": p.model}
+    options.update(kw)
     messages: list[Message] = [{"role": "system", "content": system or config.SYSTEM_PROMPT}]
     messages.append({"role": "user", "content": prompt})
-    return chat(messages, **kw)
+    return chat(messages, **options)
 
 
 def embed(texts: list[str], model: str = "nomic-embed-text") -> list[list[float]]:
