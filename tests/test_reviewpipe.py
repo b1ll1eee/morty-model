@@ -104,3 +104,14 @@ def test_pipeline_lite_is_one_pass(fake_chat):
               '{"decisions": [{"n": 1, "verdict": "KEEP", "reason": "xs=[]"}]}']
     report = rp.review(f"```python\n{code}```", snippet=(code, "python"), model="m")
     assert report.passes == 1 and len(report.findings) == 1 and report.findings[0].verified
+
+
+def test_single_review_appends_analyzer_without_priming(fake_chat):
+    queue, calls = fake_chat
+    code = "import os\ndef f(x):\n    return os.system('echo ' + x)\n"
+    queue.append("- พบ 1 risk: ต้องแก้ก่อน merge\n[risk] บรรทัด 3: command injection")
+    text, report = rp.single_review(f"```python\n{code}```", snippet=(code, "python"), model="m")
+    assert "สิ่งที่เครื่องมืออัตโนมัติ" not in calls[0]["messages"][0]["content"]  # ไม่ชี้นำโมเดลด้วยผล analyzer
+    assert report.analyzer_ran and any(f.source.startswith(("ruff", "bandit")) for f in report.findings)
+    out = rp.render_single(text, report)
+    assert out.startswith("- พบ 1 risk") and "เครื่องมืออัตโนมัติ" in out

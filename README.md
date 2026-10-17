@@ -39,8 +39,8 @@ cp .env.example .env
 ```bash
 .venv/bin/python -m morty.chat                        # แชทกับ Morty ตัวกลาง
 .venv/bin/python -m morty.chat --profile dev          # ปรึกษาเรื่องโค้ด
-git diff | .venv/bin/python -m morty.review           # ให้ reviewer ตรวจ diff ก่อน commit (pipeline เต็ม)
-.venv/bin/python -m morty.review app.py --quick       # รอบเดียว เร็วกว่า 5 เท่า แต่หยาบกว่า
+git diff | .venv/bin/python -m morty.review           # ให้ reviewer ตรวจ diff ก่อน commit (โมเดล + ruff/bandit)
+.venv/bin/python -m morty.review app.py --pipeline    # เพิ่มรอบตรวจซ้ำทุก finding เมื่อ false positive รบกวน
 ```
 
 `dev` มองเห็นโฟลเดอร์ที่คุณรันคำสั่ง (เปลี่ยนด้วย `--workspace`) อ่านไฟล์ ค้นโค้ด ดู git ได้เอง
@@ -86,7 +86,7 @@ flowchart TB
 | eval | `qwen2.5:7b` | `qwen3:14b` | ตัดสินใจ |
 |---|---|---|---|
 | dev 20 ข้อ | 20/20, 17s ต่อข้อ, กรรมการ 1.95/2 | 12/12 (ชุดเก่า), 42s ต่อข้อ | dev ใช้ 7b เร็วกว่าเกือบ 3 เท่าโดยคะแนนเท่ากัน กรรมการจับได้ว่า 1 ข้อหลุดเป็นภาษาจีนครึ่งคำตอบ |
-| reviewer 16 ข้อ | 9/11 (ชุดเก่า) | จับบั๊กที่ฝังไว้ได้ 13/13, โค้ดสะอาด 1/3 | reviewer ใช้ 14b จับบั๊กครบ แต่ชอบติโค้ดที่ดีอยู่แล้ว ใช้เป็นด่านแรกก่อนคนอ่าน |
+| reviewer 16 ข้อ | 9/11 (ชุดเก่า) | รอบเดียว: บั๊ก 13/13, โค้ดสะอาด 1/3 · pipeline 4 รอบ: บั๊ก 12/13, สะอาด 2/3, ช้า 5 เท่า | ค่าเริ่มต้นคือรอบเดียว + ruff/bandit แนบท้าย; pipeline ไว้หลัง flag จนกว่าจะมี eval ใหญ่กว่านี้ |
 | dev-tools 6 ข้อ ×3 รอบ | 13/18 (4 ข้อนิ่ง, 1 ตกเสมอ, 1 แกว่ง) | 5/6 | เครื่องมือใช้ได้ทั้งคู่ 14b อ่านไฟล์ยาวแล้วสรุปแม่นกว่า ใช้ `--model qwen3:14b` เมื่อต้องวิเคราะห์โค้ดจริงจัง |
 
 RAG ทำให้ dev ขึ้นจาก 9/12 เป็น 12/12 ในคำถามเกี่ยวกับโปรเจกต์ รายละเอียดอยู่ใน `docs/reference.md`

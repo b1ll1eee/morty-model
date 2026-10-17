@@ -297,6 +297,33 @@ def merge(findings: list[Finding]) -> list[Finding]:
     return out
 
 
+def single_review(code_prompt: str, *, py_files: list[Path] | None = None, snippet: tuple[str, str] | None = None,
+                  model: str | None = None, profile_name: str = "reviewer", on_event: Event | None = None) -> tuple[str, Report]:
+    """ค่าเริ่มต้นของ morty.review: โมเดลตรวจรอบเดียวด้วย prompt ของ profile ตามที่วัดได้ 13/13
+    แล้วแนบผล analyzer ต่อท้ายโดยไม่ชี้นำโมเดล คืน (ข้อความคำตอบของโมเดล, Report ที่มีเฉพาะผล analyzer)"""
+    prof = profiles.load(profile_name)
+    model = model or prof.model or config.MODEL
+    report = Report(passes=1)
+    if py_files:
+        report.findings += analyze_python(py_files)
+        report.analyzer_ran = True
+    elif snippet:
+        report.findings += analyze_snippet(*snippet)
+        report.analyzer_ran = True
+    if on_event and report.analyzer_ran:
+        on_event("step", f"analyzer พบ {len(report.findings)} รายการ")
+    text = llm.chat([{"role": "system", "content": prof.system}, {"role": "user", "content": code_prompt}],
+                    model=model, **prof.options)
+    return text, report
+
+
+def render_single(text: str, report: Report) -> str:
+    if not report.findings:
+        return text
+    extra = "\n".join(f"[{f.severity}] {f.text} ({f.source})" for f in sorted(report.findings, key=lambda f: SEVERITY_ORDER[f.severity]))
+    return f"{text}\n\n### เครื่องมืออัตโนมัติ (ruff + bandit) พบเพิ่มเติม\n{extra}"
+
+
 def review(code_prompt: str, *, py_files: list[Path] | None = None, snippet: tuple[str, str] | None = None,
            model: str | None = None, profile_name: str = "reviewer", on_event: Event | None = None,
            aspects: list[tuple] | None = None, thorough: bool = False) -> Report:
@@ -322,7 +349,10 @@ def review(code_prompt: str, *, py_files: list[Path] | None = None, snippet: tup
         ev("step", f"analyzer พบ {len(report.findings)} รายการ")
 
     for aspect in aspects:
-        found = model_pass(prof, model, code_prompt, aspect, report.findings)
+        # บอกโมเดลเฉพาะสิ่งที่รอบก่อนของโมเดลพบ ไม่บอกผล analyzer: การเห็น "repo ไม่ได้ประกาศ" ทำให้โมเดล
+        # ไปย้ำเรื่องเดียวกันแทนที่จะมองบรรทัดนั้นใหม่ (พลาด await ซ้ำ 3 รอบวัด)
+        known = [f for f in report.findings if f.source.startswith("model")]
+        found = model_pass(prof, model, code_prompt, aspect, known)
         report.passes += 1
         ev("step", f"รอบ {aspect[1]}: {len(found)} finding")
         report.findings = merge(report.findings + found)
