@@ -99,7 +99,7 @@ class MortyApp(App):
     CSS = """
     Screen { layout: vertical; }
     #status { height: 1; background: $panel; color: $text; padding: 0 1; }
-    #transcript { height: 1fr; padding: 0 2; scrollbar-size: 1 1; }
+    #transcript { height: 1fr; padding: 0 2 1 2; scrollbar-size: 1 1; }
     #welcome { border: round $primary; padding: 0 2; margin: 1 0; height: auto; background: $surface; }
     #welcome { border-title-color: $primary; border-subtitle-color: $text-muted; }
     .logo { color: $primary; text-style: bold; }
@@ -113,9 +113,10 @@ class MortyApp(App):
     .system { color: $text-muted; text-style: italic; padding: 0 1; }
     .error { color: $error; padding: 0 1; }
     .thinking { color: $warning; padding: 0 1; }
-    #input { dock: bottom; border: round $primary; background: $surface; }
+    #bottom { dock: bottom; height: auto; margin: 0 1 1 1; }
+    #input { border: round $primary; background: $surface; padding: 0 1; }
     #input:focus { border: round $accent; }
-    #hint { height: 1; color: $text-muted; padding: 0 1; dock: bottom; }
+    #hint { height: 1; color: $text-muted; padding: 0 2; }
     """
     BINDINGS = [
         Binding("ctrl+c", "cancel_or_quit", "หยุด/ออก", priority=True),
@@ -147,9 +148,10 @@ class MortyApp(App):
     def compose(self) -> ComposeResult:
         yield Static(id="status")
         yield VerticalScroll(id="transcript")
-        yield Input(placeholder="พิมพ์ข้อความ หรือ / เพื่อดูคำสั่ง", id="input",
-                    suggester=SuggestFromList(SLASH, case_sensitive=False))
-        yield Static(" [b]Enter[/b] ส่ง  ·  [b]/[/b] คำสั่ง  ·  [b]Ctrl+C[/b] หยุด  ·  [b]Ctrl+Q[/b] ออก  ·  [b]/theme[/b] เปลี่ยนธีม", id="hint")
+        with Vertical(id="bottom"):
+            yield Input(placeholder="พิมพ์ข้อความ หรือ / เพื่อดูคำสั่ง", id="input",
+                        suggester=SuggestFromList(SLASH, case_sensitive=False))
+            yield Static("[b]Enter[/b] ส่ง  ·  [b]/[/b] คำสั่ง  ·  [b]Ctrl+C[/b] หยุด  ·  [b]Ctrl+Q[/b] ออก  ·  [b]/theme[/b] เปลี่ยนธีม", id="hint")
 
     def on_mount(self) -> None:
         self.theme = "tokyo-night"
