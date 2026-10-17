@@ -118,9 +118,15 @@ def main() -> None:
         )
         answer = report.render()
         sys.stdout.write(answer + "\n")
+        meta = {
+            "mode": "pipeline", "passes": report.passes, "dropped": report.verified_dropped,
+            "analyzer": report.analyzer_ran,
+            "findings": {s: sum(1 for f in report.findings if f.severity == s) for s in ("bug", "risk", "style")},
+        }
     event_id = log.record(
         source="review", profile=prof.name, model=model, question=prompt, answer=answer,
         seconds=time.perf_counter() - t0, refs=[s[0] for s in sections],
+        meta=meta if not args.quick else {"mode": "quick"},
     )
     console.print(f"[dim]บันทึก log {event_id}  ถ้าผลไม่ดี: python -m morty.log rate {event_id} bad \"เหตุผล\"[/]")
 

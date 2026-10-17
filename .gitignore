@@ -11,3 +11,4 @@ evals/results/
 .claude/autoharness/
 .claude/skills/
 logs/
+reports/

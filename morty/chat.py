@@ -67,6 +67,7 @@ def main() -> None:
 
     banner()
     last_id: str | None = None
+    tools_used: list[str] = []
 
     while True:
         try:
@@ -118,6 +119,7 @@ def main() -> None:
         if hits:
             console.print("[dim]อ้างอิง: " + ", ".join(f"{h.path}#{h.chunk + 1} ({h.score:.2f})" for h in hits) + "[/]")
         parts_out: list[str] = []
+        tools_used = []
         t0 = time.perf_counter()
         try:
             if tools_on():
@@ -129,7 +131,8 @@ def main() -> None:
                     else:
                         console.print(f"[dim]   → {text}[/]", highlight=False)
 
-                answer, _ = agent.run(outgoing, model=model, options=options, ws=ws, on_event=on_event)
+                answer, added = agent.run(outgoing, model=model, options=options, ws=ws, on_event=on_event)
+                tools_used = [tc["function"]["name"] for m in added if m.get("tool_calls") for tc in m["tool_calls"]]
                 console.print(f"[bold green]{profile.title}>[/] ", end="")
                 console.print(answer, highlight=False, markup=False)
             else:
@@ -146,7 +149,7 @@ def main() -> None:
         history.append({"role": "assistant", "content": answer})
         last_id = log.record(
             source="chat", profile=profile.name, model=model, question=user, answer=answer,
-            seconds=time.perf_counter() - t0, refs=[f"{h.path}#{h.chunk + 1}" for h in hits],
+            seconds=time.perf_counter() - t0, refs=[f"{h.path}#{h.chunk + 1}" for h in hits], tools=tools_used,
         )
 
 

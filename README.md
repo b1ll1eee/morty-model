@@ -77,6 +77,7 @@ flowchart TB
 .venv/bin/python -m morty.log to-eval dev >> evals/dev.jsonl            # แปลงเป็นข้อสอบ แล้วเติมคำตอบที่คาดหวัง
 .venv/bin/python -m morty.evaluate dev                                  # 12 ข้อ ผ่านกี่ข้อ ใช้เวลาเท่าไร
 .venv/bin/python -m morty.evaluate dev --models qwen2.5:7b,qwen3:14b    # เทียบโมเดลในรอบเดียว
+.venv/bin/python -m morty.dashboard --open                              # dashboard: คะแนน eval, latency, การใช้งาน, rating, เครื่องมือ
 ```
 
 ผลล่าสุด (17 ต.ค. 2026)
@@ -111,6 +112,7 @@ morty/
   reviewpipe.py   pipeline ตรวจโค้ด: ruff + bandit → 4 รอบ → ตรวจซ้ำ → รวมผล
   evaluate.py     รัน eval และเทียบโมเดล
   log.py          บันทึกการใช้งาน ให้คะแนน และแปลงเคสแย่เป็น eval
+  dashboard.py    สร้าง reports/dashboard.html จาก log + ผล eval + สถานะ Ollama (ในเครื่องล้วน)
 evals/            คำถามทดสอบต่อ profile
 logs/             บันทึกการใช้งานจริงรายวัน (ไม่ commit)
 data/dev/         เอกสารของทีมสำหรับ RAG (ไม่ commit)

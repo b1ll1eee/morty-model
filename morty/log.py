@@ -41,13 +41,18 @@ def _append(event: dict) -> None:
 
 
 def record(*, source: str, profile: str, model: str, question: str, answer: str,
-           seconds: float, refs: list[str] | None = None) -> str:
-    """บันทึกคู่ถามตอบ คืน id ไว้ใช้ให้คะแนนภายหลัง"""
+           seconds: float, refs: list[str] | None = None, tools: list[str] | None = None,
+           meta: dict | None = None) -> str:
+    """บันทึกคู่ถามตอบ คืน id ไว้ใช้ให้คะแนนภายหลัง
+
+    refs = เอกสาร RAG ที่ใช้, tools = ชื่อเครื่องมือที่โมเดลเรียก (ซ้ำได้), meta = ข้อมูลเพิ่ม เช่น ผล pipeline
+    """
     event_id = uuid.uuid4().hex[:12]
     _append({
         "type": "exchange", "id": event_id, "ts": datetime.now().isoformat(timespec="seconds"),
         "source": source, "profile": profile, "model": model,
         "question": question, "answer": answer, "seconds": round(seconds, 2), "refs": refs or [],
+        "tools": tools or [], "meta": meta or {},
     })
     return event_id
 
