@@ -24,7 +24,9 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from . import config, llm, profiles
+from pathlib import Path
+
+from . import agent, config, llm, profiles
 
 EVALS_DIR = config.ROOT / "evals"
 THAI = re.compile(r"[฀-๿]")
@@ -52,7 +54,16 @@ def check(case: dict, answer: str) -> list[str]:
     return fails
 
 
-def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bool, console: Console) -> list[dict]:
+def ask_with_tools(profile_name: str, model: str, question: str, allow_run: bool) -> str:
+    prof = profiles.load(profile_name)
+    ws = agent.make_workspace(Path(config.ROOT), prof, confirm=lambda desc: allow_run)
+    messages = [{"role": "system", "content": prof.system}, {"role": "user", "content": question}]
+    answer, _ = agent.run(messages, model=model, options={**prof.options}, ws=ws)
+    return answer
+
+
+def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bool, console: Console,
+        use_tools: bool = False, allow_run: bool = False) -> list[dict]:
     """รัน eval หนึ่งรอบด้วยโมเดลเดียว พิมพ์ตาราง และคืน record ต่อข้อ"""
     console.print(
         f"eval [magenta]{profile_name}[/] {len(cases)} ข้อ ด้วยโมเดล [cyan]{model}[/] "
@@ -67,7 +78,10 @@ def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bo
     records: list[dict] = []
     for case in cases:
         t0 = time.perf_counter()
-        answer = llm.ask(case["q"], profile=profile_name, model=model, rag=rag)
+        if use_tools:
+            answer = ask_with_tools(profile_name, model, case["q"], allow_run)
+        else:
+            answer = llm.ask(case["q"], profile=profile_name, model=model, rag=rag)
         dt = time.perf_counter() - t0
         fails = check(case, answer)
         ok = not fails
@@ -108,11 +122,14 @@ def main() -> None:
     parser.add_argument("--models", default=None, help="หลายโมเดลคั่นด้วยจุลภาค รันทุกตัวแล้วสรุปตารางเทียบ")
     parser.add_argument("--show", action="store_true", help="แสดงคำตอบเต็มทุกข้อ")
     parser.add_argument("--no-rag", action="store_true", help="ปิด RAG เพื่อเทียบผลก่อนและหลัง")
+    parser.add_argument("--set", default=None, help="ชื่อชุด eval ใน evals/ (ค่าเริ่มต้น = ชื่อ profile) เช่น dev-tools")
+    parser.add_argument("--tools", action="store_true", help="รันผ่านวงจรเครื่องมือ (workspace = โฟลเดอร์โปรเจกต์)")
+    parser.add_argument("--allow-run", action="store_true", help="อนุญาต run_command/run_python ระหว่าง eval")
     args = parser.parse_args()
 
     console = Console()
     prof = profiles.load(args.profile)
-    cases = load_cases(args.profile)
+    cases = load_cases(args.set or args.profile)
     rag = not args.no_rag
     models = [m.strip() for m in args.models.split(",")] if args.models else [args.model or prof.model or config.MODEL]
 
@@ -123,9 +140,10 @@ def main() -> None:
 
     summaries: list[dict] = []
     for model in models:
-        records = run(args.profile, model, cases, rag=rag, show=args.show, console=console)
+        records = run(args.profile, model, cases, rag=rag, show=args.show, console=console,
+                      use_tools=args.tools, allow_run=args.allow_run)
         safe = model.replace(":", "_").replace("/", "_")
-        out = out_dir / f"{args.profile}-{tag}-{safe}-{stamp}.jsonl"
+        out = out_dir / f"{args.set or args.profile}-{tag}{'-tools' if args.tools else ''}-{safe}-{stamp}.jsonl"
         out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n", encoding="utf-8")
         console.print(f"[dim]บันทึกผลที่ {out.relative_to(config.ROOT)}[/]\n")
         summaries.append(summary(records))

@@ -4,9 +4,9 @@
 โมเดลกลางหนึ่งตัวบน [Ollama](https://ollama.com) แตกเป็น expert หลายด้านด้วยไฟล์ตั้งค่าไฟล์เดียว ไม่ต้องเทรนใหม่
 
 ```
-คุณ> ในโปรเจกต์นี้ถ้าจะเพิ่ม expert ใหม่ต้องทำยังไง
-อ้างอิง: morty-project.md#2 (0.75)
-morty-dev> สร้างไฟล์ morty/profiles/<ชื่อ>.toml กำหนด title, system และ [options] ...
+คุณ> ไฟล์ config.py ในโปรเจกต์นี้อ่านค่าอะไรจาก .env บ้าง
+🔧 read_file(path='morty/config.py')
+morty-dev> อ่าน 4 ค่า: MORTY_MODEL, OLLAMA_HOST, MORTY_SYSTEM_PROMPT และ MORTY_PROFILE (ดูจาก morty/config.py)
 ```
 
 ## ทำอะไรได้บ้าง
@@ -14,7 +14,7 @@ morty-dev> สร้างไฟล์ morty/profiles/<ชื่อ>.toml กำ
 | | profile | เหมาะกับ |
 |---|---|---|
 | 💬 | `general` | ถามตอบทั่วไป สรุปความ ร่างข้อความ |
-| 🛠 | `dev` | เขียนโค้ด แก้บั๊ก ตอบจากเอกสารของทีมผ่าน RAG |
+| 🛠 | `dev` | เขียนโค้ด แก้บั๊ก อ่านไฟล์และค้นโค้ดในโปรเจกต์ของคุณเอง รันคำสั่งได้เมื่อคุณอนุญาต |
 | 🔍 | `reviewer` | ตรวจโค้ดหรือ `git diff` หาบั๊กและช่องโหว่ก่อน merge |
 
 ทุก profile ใช้โมเดลกลางเดียวกัน (`qwen2.5:7b` ราว 5 GB) ต่างกันที่ system prompt, พารามิเตอร์ และเอกสารที่ค้นมาใส่ใน context
@@ -43,6 +43,8 @@ git diff | .venv/bin/python -m morty.review           # ให้ reviewer ต�
 .venv/bin/python -m morty.review app.py --focus ความปลอดภัย
 ```
 
+`dev` มองเห็นโฟลเดอร์ที่คุณรันคำสั่ง (เปลี่ยนด้วย `--workspace`) อ่านไฟล์ ค้นโค้ด ดู git ได้เอง
+ถ้าจะรันคำสั่งหรือโค้ด Python จะถามคุณก่อนทุกครั้ง ปิดเครื่องมือได้ด้วย `--no-tools`
 ในแชทพิมพ์ `/profile reviewer` เพื่อสลับ expert กลางคัน หรือ `/model qwen3:14b` เพื่อสลับโมเดล
 ถ้าคำตอบไหนไม่ดี พิมพ์ `/bad เหตุผล` ระบบจะติดธงไว้ใน log เพื่อนำกลับมาเป็น eval
 
@@ -59,7 +61,7 @@ llm.ask("อ่านไฟล์ JSON ใน Python ยังไง", profile="
 flowchart TB
     U[ผู้ใช้ หรือโค้ด Python] --> CLI["morty.chat / morty.review  --profile ชื่อ"]
     CLI --> G["general"]
-    CLI --> D["dev<br/>+ RAG จาก data/dev/"]
+    CLI --> D["dev<br/>+ RAG จาก data/dev/<br/>+ เครื่องมือ: อ่านไฟล์ ค้นโค้ด git รันคำสั่ง"]
     CLI --> R["reviewer<br/>รับโค้ดหรือ diff"]
     G & D & R --> L["morty/llm.py<br/>จุดเดียวที่คุยกับโมเดล"]
     L --> O["Ollama ในเครื่อง<br/>qwen2.5:7b"]
@@ -83,6 +85,7 @@ flowchart TB
 |---|---|---|---|
 | dev 20 ข้อ | 20/20, 15s ต่อข้อ | 12/12 (ชุดเก่า), 42s ต่อข้อ | dev ใช้ 7b เร็วกว่าเกือบ 3 เท่าโดยคะแนนเท่ากัน |
 | reviewer 16 ข้อ | 9/11 (ชุดเก่า) | จับบั๊กที่ฝังไว้ได้ 13/13, โค้ดสะอาด 1/3 | reviewer ใช้ 14b จับบั๊กครบ แต่ชอบติโค้ดที่ดีอยู่แล้ว ใช้เป็นด่านแรกก่อนคนอ่าน |
+| dev-tools 6 ข้อ | 4/6 | 5/6 | เครื่องมือใช้ได้ทั้งคู่ 14b อ่านไฟล์ยาวแล้วสรุปแม่นกว่า ใช้ `--model qwen3:14b` เมื่อต้องวิเคราะห์โค้ดจริงจัง |
 
 RAG ทำให้ dev ขึ้นจาก 9/12 เป็น 12/12 ในคำถามเกี่ยวกับโปรเจกต์ รายละเอียดอยู่ใน `docs/reference.md`
 
@@ -101,6 +104,8 @@ morty/
   llm.py          ชั้นเดียวที่คุยกับโมเดล ย้ายไป Claude API ได้โดยแก้ไฟล์นี้ไฟล์เดียว
   profiles/       general.toml  dev.toml  reviewer.toml
   rag.py          ทำดัชนีและค้นเอกสารใน data/<profile>/
+  tools.py        เครื่องมือที่โมเดลเรียกได้ ภายใน workspace เท่านั้น
+  agent.py        วงจรเรียกเครื่องมือจนได้คำตอบ
   chat.py         แชท CLI
   review.py       ส่งไฟล์หรือ diff ให้ reviewer
   evaluate.py     รัน eval และเทียบโมเดล

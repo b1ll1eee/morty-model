@@ -30,6 +30,22 @@ def chat(messages: list[Message], model: str | None = None, **options) -> str:
     return resp["message"]["content"]
 
 
+def chat_raw(messages: list[dict], model: str | None = None, tools: list[dict] | None = None, **options) -> dict:
+    """ส่งบทสนทนา (รองรับ tool calling) คืน message ทั้งก้อนเป็น dict: content, tool_calls, ..."""
+    request, options = _split(dict(options))
+    if tools:
+        request["tools"] = tools
+    resp = _client.chat(model=model or config.MODEL, messages=messages, options=options, **request)
+    msg = resp["message"]
+    out = {"role": msg["role"], "content": msg.get("content") or ""}
+    if msg.get("tool_calls"):
+        out["tool_calls"] = [
+            {"function": {"name": tc["function"]["name"], "arguments": dict(tc["function"]["arguments"] or {})}}
+            for tc in msg["tool_calls"]
+        ]
+    return out
+
+
 def chat_stream(messages: list[Message], model: str | None = None, **options) -> Iterator[str]:
     """เหมือน chat() แต่ทยอยคืนข้อความทีละชิ้นขณะโมเดลกำลังพิมพ์"""
     request, options = _split(dict(options))

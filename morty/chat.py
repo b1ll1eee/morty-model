@@ -7,6 +7,9 @@
               /profile <ชื่อ> สลับ profile (ล้างบทสนทนาด้วย)   /quit ออก
               /bad [เหตุผล] ติดธงว่าคำตอบล่าสุดไม่ดี   /good ติดธงว่าดี
 ถ้า profile มีดัชนี RAG (python -m morty.rag index <ชื่อ>) จะแนบเอกสารที่เกี่ยวข้องให้อัตโนมัติ
+profile ที่เปิด [tools] (เช่น dev) จะอ่านไฟล์ ค้นโค้ด ดู git และรันคำสั่งใน workspace ได้
+  workspace คือโฟลเดอร์ที่รันคำสั่งนี้ (เปลี่ยนด้วย --workspace) การรันคำสั่งจะถามอนุญาตก่อนทุกครั้ง
+  ปิดเครื่องมือด้วย --no-tools  ข้ามการถามด้วย --yes (ระวัง)
 ทุกคู่ถามตอบถูกบันทึกลง logs/ (ปิดด้วย MORTY_LOG=0) ดูด้วย python -m morty.log show
 """
 import argparse
@@ -15,7 +18,9 @@ import time
 
 from rich.console import Console
 
-from . import config, llm, log, profiles, rag
+from pathlib import Path
+
+from . import agent, config, llm, log, profiles, rag
 
 console = Console()
 
@@ -28,7 +33,25 @@ def main() -> None:
     )
     parser.add_argument("--model", default=None, help="ชื่อโมเดลใน Ollama (ทับค่าของ profile)")
     parser.add_argument("--system", default=None, help="system prompt (ทับค่าของ profile)")
+    parser.add_argument("--workspace", default=".", help="โฟลเดอร์ที่เครื่องมือเข้าถึงได้ (ค่าเริ่มต้น: โฟลเดอร์ปัจจุบัน)")
+    parser.add_argument("--no-tools", action="store_true", help="ปิดเครื่องมือแม้ profile จะเปิดไว้")
+    parser.add_argument("--yes", action="store_true", help="อนุญาตให้รันคำสั่งโดยไม่ถาม (ระวัง)")
     args = parser.parse_args()
+    workspace = Path(args.workspace).resolve()
+
+    def confirm(desc: str) -> bool:
+        if args.yes:
+            console.print(f"[yellow]อนุญาตอัตโนมัติ:[/] {desc}")
+            return True
+        console.print(f"[yellow]Morty ขอ[/] {desc}")
+        try:
+            ans = console.input("[yellow]อนุญาตไหม? (y/N)[/] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
+        return ans in ("y", "yes")
+
+    def tools_on() -> bool:
+        return bool(profile.tools.get("enabled")) and not args.no_tools
 
     profile = profiles.load(args.profile)
     model = args.model or profile.model or config.MODEL
@@ -37,9 +60,10 @@ def main() -> None:
 
     def banner() -> None:
         rag_state = "RAG เปิด" if rag.available(profile) else "RAG ปิด"
+        tool_state = f"เครื่องมือเปิด @ {workspace}" if tools_on() else "เครื่องมือปิด"
         console.print(
             f"[bold green]{profile.title}[/] profile [magenta]{profile.name}[/] "
-            f"โมเดล [cyan]{model}[/] {rag_state}  (พิมพ์ /quit เพื่อออก)"
+            f"โมเดล [cyan]{model}[/] {rag_state} {tool_state}  (พิมพ์ /quit เพื่อออก)"
         )
 
     banner()
@@ -94,19 +118,32 @@ def main() -> None:
         outgoing = history[:-1] + [{"role": "user", "content": augmented}]
         if hits:
             console.print("[dim]อ้างอิง: " + ", ".join(f"{h.path}#{h.chunk + 1} ({h.score:.2f})" for h in hits) + "[/]")
-        console.print(f"[bold green]{profile.title}>[/] ", end="")
         parts_out: list[str] = []
         t0 = time.perf_counter()
         try:
-            for piece in llm.chat_stream(outgoing, model=model, **options):
-                parts_out.append(piece)
-                console.print(piece, end="", highlight=False, markup=False)
+            if tools_on():
+                ws = agent.make_workspace(workspace, profile, confirm)
+
+                def on_event(kind: str, text: str) -> None:
+                    if kind == "tool":
+                        console.print(f"[dim]🔧 {text}[/]", highlight=False)
+                    else:
+                        console.print(f"[dim]   → {text}[/]", highlight=False)
+
+                answer, _ = agent.run(outgoing, model=model, options=options, ws=ws, on_event=on_event)
+                console.print(f"[bold green]{profile.title}>[/] ", end="")
+                console.print(answer, highlight=False, markup=False)
+            else:
+                console.print(f"[bold green]{profile.title}>[/] ", end="")
+                for piece in llm.chat_stream(outgoing, model=model, **options):
+                    parts_out.append(piece)
+                    console.print(piece, end="", highlight=False, markup=False)
+                console.print()
+                answer = "".join(parts_out)
         except Exception as e:  # noqa: BLE001
             console.print(f"\n[red]เกิดข้อผิดพลาด:[/] {e}")
             history.pop()
             continue
-        console.print()
-        answer = "".join(parts_out)
         history.append({"role": "assistant", "content": answer})
         last_id = log.record(
             source="chat", profile=profile.name, model=model, question=user, answer=answer,

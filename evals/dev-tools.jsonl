@@ -1,0 +1,6 @@
+{"id": "tool-config-vars", "q": "ไฟล์ morty/config.py ในโปรเจกต์นี้มีตัวแปรระดับโมดูลอะไรบ้าง", "expect_all": ["MODEL", "PROFILE"], "expect_any": ["OLLAMA_HOST"], "thai": true, "note": "ต้องอ่านไฟล์จริง"}
+{"id": "tool-list-profiles", "q": "โปรเจกต์นี้มี profile อะไรบ้าง ดูจากไฟล์ในโฟลเดอร์ morty/profiles", "expect_all": ["general", "dev", "reviewer"], "thai": true, "note": "ต้อง list_dir"}
+{"id": "tool-find-cosine", "q": "ฟังก์ชันที่คำนวณ cosine similarity ใน morty/rag.py ชื่ออะไร และอยู่บรรทัดไหนโดยประมาณ", "expect_any": ["_cos"], "thai": true, "note": "ต้อง search_code หรือ read_file"}
+{"id": "tool-git-log", "q": "commit ล่าสุดของ repo นี้มีข้อความว่าอะไร", "expect_any": ["eval", "prompt", "reviewer", "tool", "Expand", "Add"], "thai": true, "note": "ต้องใช้ git log"}
+{"id": "tool-run-python", "q": "ช่วยรัน Python คำนวณ 123456789 * 987654321 แล้วบอกผลลัพธ์ที่ได้จริง", "expect_any": ["121932631112635269", "121,932,631,112,635,269"], "thai": true, "note": "ต้อง run_python และผู้ใช้อนุญาต"}
+{"id": "tool-not-needed", "q": "list comprehension ใน Python คืออะไร ยกตัวอย่างสั้นๆ", "expect_any": ["[", "for"], "thai": true, "note": "ไม่ควรต้องใช้เครื่องมือ วัดว่าไม่เรียกมั่ว"}

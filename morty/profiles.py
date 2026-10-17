@@ -25,6 +25,7 @@ class Profile:
     options: dict = field(default_factory=dict)  # temperature, num_ctx, ...
     data_dir: Path | None = None  # เอกสารสำหรับ RAG
     rag: dict = field(default_factory=dict)  # enabled, top_k, min_score
+    tools: dict = field(default_factory=dict)  # enabled, allow, confirm_run
 
 
 def names() -> list[str]:
@@ -47,4 +48,5 @@ def load(name: str) -> Profile:
         options=dict(raw.get("options", {})),
         data_dir=(config.ROOT / data_dir) if data_dir else None,
         rag=dict(raw.get("rag", {})),
+        tools=dict(raw.get("tools", {})),
     )
