@@ -9,6 +9,8 @@
    "expect_all": ["คำที่ต้องมีทุกคำ"], "thai": true}
 การตรวจเป็นแบบหยาบ (หาคำในคำตอบ) ใช้จับการถดถอยเวลาแก้ prompt หรือสลับโมเดล
 ไม่ได้แทนการอ่านคำตอบจริง ใส่ --show เพื่อดูคำตอบทั้งหมด
+--judge ให้โมเดลกรรมการ (ค่าเริ่มต้น qwen3:14b) ให้คะแนน 0-2 ตาม rubric แยกจากการหาคำ
+--repeat N รันแต่ละข้อ N รอบ เพื่อดูว่าผลนิ่งแค่ไหน (ข้อที่ผ่านบ้างตกบ้าง = flaky)
 ผลแต่ละครั้งถูกบันทึกไว้ที่ evals/results/<profile>-<rag|norag>-<โมเดล>-<เวลา>.jsonl
 --models จะรันทุกโมเดลบน eval เดียวกันแล้วสรุปเป็นตารางเทียบ พร้อมบันทึก evals/results/compare-<เวลา>.json
 """
@@ -62,6 +64,38 @@ def ask_with_tools(profile_name: str, model: str, question: str, allow_run: bool
 
 FENCE_RE = re.compile(r"```(\w*)\n(.*?)```", re.S)
 
+JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {"score": {"type": "integer", "minimum": 0, "maximum": 2}, "reason": {"type": "string"}},
+    "required": ["score", "reason"],
+}
+JUDGE_SYSTEM = (
+    "คุณคือกรรมการตรวจคำตอบของผู้ช่วย AI ให้คะแนนอย่างเข้มงวดและเป็นกลาง\n"
+    "2 = ถูกต้องครบถ้วน ตรงคำถาม ไม่มีข้อมูลผิด\n"
+    "1 = ถูกบางส่วน หรือถูกแต่ขาดสาระสำคัญ หรือมีส่วนที่ทำให้เข้าใจผิดเล็กน้อย\n"
+    "0 = ผิด ไม่ตอบคำถาม หรือแต่งข้อมูล\n"
+    "คำใบ้ที่ให้มาคือสิ่งที่คำตอบที่ดีมักมี ไม่ใช่เกณฑ์ตายตัว ใช้ความรู้ของคุณตัดสินเนื้อหาด้วย\n"
+    "ตอบเป็น JSON {\"score\": 0|1|2, \"reason\": เหตุผลสั้นๆ ภาษาไทย}"
+)
+
+
+def judge(question: str, answer: str, case: dict, judge_model: str) -> tuple[int | None, str]:
+    hints = []
+    if case.get("expect_any"):
+        hints.append("ควรมีอย่างน้อยหนึ่งใน: " + ", ".join(case["expect_any"]))
+    if case.get("expect_all"):
+        hints.append("ต้องมี: " + ", ".join(case["expect_all"]))
+    if case.get("note"):
+        hints.append("หมายเหตุ: " + case["note"])
+    user = f"### คำถาม\n{question}\n\n### คำตอบที่ต้องตรวจ\n{answer}\n\n### คำใบ้\n" + ("\n".join(hints) or "-")
+    try:
+        text = llm.chat([{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}],
+                        model=judge_model, temperature=0.0, think=False, format=JUDGE_SCHEMA)
+        data = json.loads(text)
+        return int(data["score"]), str(data.get("reason", ""))
+    except Exception as e:  # noqa: BLE001
+        return None, f"judge ล้มเหลว: {e}"
+
 
 def ask_with_pipeline(profile_name: str, model: str, question: str) -> str:
     m = FENCE_RE.search(question)
@@ -71,48 +105,75 @@ def ask_with_pipeline(profile_name: str, model: str, question: str) -> str:
 
 
 def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bool, console: Console,
-        use_tools: bool = False, allow_run: bool = False, use_pipeline: bool = False) -> list[dict]:
-    """รัน eval หนึ่งรอบด้วยโมเดลเดียว พิมพ์ตาราง และคืน record ต่อข้อ"""
+        use_tools: bool = False, allow_run: bool = False, use_pipeline: bool = False,
+        judge_model: str | None = None, repeat: int = 1) -> list[dict]:
+    """รัน eval ด้วยโมเดลเดียว (แต่ละข้อ repeat รอบ) พิมพ์ตาราง และคืน record ต่อข้อต่อรอบ"""
     console.print(
         f"eval [magenta]{profile_name}[/] {len(cases)} ข้อ ด้วยโมเดล [cyan]{model}[/] "
-        f"{'RAG เปิด' if rag else 'RAG ปิด'}"
+        f"{'RAG เปิด' if rag else 'RAG ปิด'}" + (f" ×{repeat} รอบ" if repeat > 1 else "")
+        + (f" กรรมการ [cyan]{judge_model}[/]" if judge_model else "")
     )
     table = Table(show_lines=False)
     table.add_column("id", style="bold")
     table.add_column("ผล")
     table.add_column("เวลา", justify="right")
+    if judge_model:
+        table.add_column("กรรมการ", justify="right")
     table.add_column("หมายเหตุ")
 
     records: list[dict] = []
     digest = llm.model_digest(model)
     for case in cases:
-        t0 = time.perf_counter()
-        if use_pipeline:
-            answer = ask_with_pipeline(profile_name, model, case["q"])
-        elif use_tools:
-            answer = ask_with_tools(profile_name, model, case["q"], allow_run)
-        else:
-            answer = llm.ask(case["q"], profile=profile_name, model=model, rag=rag)
-        dt = time.perf_counter() - t0
-        fails = check(case, answer)
-        ok = not fails
-        table.add_row(
-            case["id"], "[green]ผ่าน[/]" if ok else "[red]ตก[/]", f"{dt:.1f}s", "; ".join(fails)
-        )
-        records.append({**case, "model": model, "model_digest": digest, "rag": rag, "answer": answer,
-                        "pass": ok, "fails": fails, "seconds": round(dt, 2)})
-        if show:
-            console.rule(f"{case['id']}  {'ผ่าน' if ok else 'ตก'}")
-            console.print(f"[blue]ถาม:[/] {case['q']}")
-            console.print(answer, markup=False, highlight=False)
+        for run_idx in range(repeat):
+            t0 = time.perf_counter()
+            if use_pipeline:
+                answer = ask_with_pipeline(profile_name, model, case["q"])
+            elif use_tools:
+                answer = ask_with_tools(profile_name, model, case["q"], allow_run)
+            else:
+                answer = llm.ask(case["q"], profile=profile_name, model=model, rag=rag)
+            dt = time.perf_counter() - t0
+            fails = check(case, answer)
+            ok = not fails
+            score, reason = (None, "")
+            if judge_model:
+                score, reason = judge(case["q"], answer, case, judge_model)
+            label = case["id"] + (f" #{run_idx + 1}" if repeat > 1 else "")
+            row = [label, "[green]ผ่าน[/]" if ok else "[red]ตก[/]", f"{dt:.1f}s"]
+            if judge_model:
+                row.append("-" if score is None else str(score))
+            note = "; ".join(fails)
+            if judge_model and score is not None and score < 2:
+                note = (note + " | " if note else "") + f"กรรมการ: {reason[:80]}"
+            table.add_row(*row, note)
+            records.append({**case, "model": model, "model_digest": digest, "rag": rag, "answer": answer,
+                            "pass": ok, "fails": fails, "seconds": round(dt, 2), "run": run_idx + 1,
+                            "judge_model": judge_model, "judge_score": score, "judge_reason": reason})
+            if show:
+                console.rule(f"{case['id']}  {'ผ่าน' if ok else 'ตก'}")
+                console.print(f"[blue]ถาม:[/] {case['q']}")
+                console.print(answer, markup=False, highlight=False)
 
     passed = sum(r["pass"] for r in records)
     total_time = sum(r["seconds"] for r in records)
     console.print(table)
-    console.print(
-        f"ผ่าน [bold]{passed}/{len(cases)}[/] ({passed / len(cases):.0%})  "
-        f"เฉลี่ย {total_time / len(cases):.1f}s ต่อข้อ"
-    )
+    line = f"ผ่าน [bold]{passed}/{len(records)}[/] ({passed / len(records):.0%})  เฉลี่ย {total_time / len(records):.1f}s ต่อข้อ"
+    scores = [r["judge_score"] for r in records if r.get("judge_score") is not None]
+    if scores:
+        line += f"  กรรมการเฉลี่ย [bold]{sum(scores) / len(scores):.2f}[/]/2 (ได้ 2 เต็ม {sum(1 for s in scores if s == 2)}/{len(scores)})"
+    console.print(line)
+    if repeat > 1:
+        by_case: dict[str, list[bool]] = {}
+        for r in records:
+            by_case.setdefault(r["id"], []).append(r["pass"])
+        flaky = [f"{k} ({sum(v)}/{len(v)})" for k, v in by_case.items() if 0 < sum(v) < len(v)]
+        rates = [sum(v) / len(v) for v in by_case.values()]
+        console.print(
+            f"ผลนิ่ง: ผ่านทุกรอบ {sum(1 for v in by_case.values() if all(v))}/{len(by_case)} ข้อ  "
+            f"ตกทุกรอบ {sum(1 for v in by_case.values() if not any(v))}  "
+            f"แกว่ง {len(flaky)}" + (": " + ", ".join(flaky) if flaky else "")
+        )
+        console.print(f"อัตราผ่านเฉลี่ยต่อข้อ {sum(rates) / len(rates):.0%} (ต่ำสุด {min(rates):.0%} สูงสุด {max(rates):.0%})")
     return records
 
 
@@ -120,8 +181,10 @@ def summary(records: list[dict]) -> dict:
     n = len(records)
     passed = sum(r["pass"] for r in records)
     secs = [r["seconds"] for r in records]
+    scores = [r["judge_score"] for r in records if r.get("judge_score") is not None]
     return {
         "model": records[0]["model"], "model_digest": records[0].get("model_digest"),
+        "judge_avg": round(sum(scores) / len(scores), 3) if scores else None,
         "rag": records[0]["rag"], "cases": n, "passed": passed,
         "score": round(passed / n, 3), "avg_seconds": round(sum(secs) / n, 1), "max_seconds": max(secs),
         "failed_ids": [r["id"] for r in records if not r["pass"]],
@@ -139,6 +202,9 @@ def main() -> None:
     parser.add_argument("--tools", action="store_true", help="รันผ่านวงจรเครื่องมือ (workspace = โฟลเดอร์โปรเจกต์)")
     parser.add_argument("--allow-run", action="store_true", help="อนุญาต run_command/run_python ระหว่าง eval")
     parser.add_argument("--pipeline", action="store_true", help="reviewer: ใช้ pipeline (analyzer, หลายรอบ, ตรวจซ้ำ) แทนรอบเดียว")
+    parser.add_argument("--judge", action="store_true", help="ให้โมเดลกรรมการให้คะแนน 0-2 ทุกคำตอบ")
+    parser.add_argument("--judge-model", default="qwen3:14b", help="โมเดลกรรมการ (ค่าเริ่มต้น qwen3:14b)")
+    parser.add_argument("--repeat", type=int, default=1, help="รันแต่ละข้อกี่รอบ เพื่อวัดความนิ่ง")
     args = parser.parse_args()
 
     console = Console()
@@ -155,9 +221,10 @@ def main() -> None:
     summaries: list[dict] = []
     for model in models:
         records = run(args.profile, model, cases, rag=rag, show=args.show, console=console,
-                      use_tools=args.tools, allow_run=args.allow_run, use_pipeline=args.pipeline)
+                      use_tools=args.tools, allow_run=args.allow_run, use_pipeline=args.pipeline,
+                      judge_model=args.judge_model if args.judge else None, repeat=args.repeat)
         safe = model.replace(":", "_").replace("/", "_")
-        mode = "-tools" if args.tools else ("-pipeline" if args.pipeline else "")
+        mode = ("-tools" if args.tools else ("-pipeline" if args.pipeline else "")) + (f"-x{args.repeat}" if args.repeat > 1 else "")
         out = out_dir / f"{args.set or args.profile}-{tag}{mode}-{safe}-{stamp}.jsonl"
         out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n", encoding="utf-8")
         console.print(f"[dim]บันทึกผลที่ {out.relative_to(config.ROOT)}[/]\n")
@@ -167,12 +234,13 @@ def main() -> None:
         table = Table(title=f"เทียบโมเดลบน eval {args.profile} ({tag})")
         table.add_column("โมเดล", style="cyan")
         table.add_column("ผ่าน", justify="right")
+        table.add_column("กรรมการ", justify="right")
         table.add_column("เฉลี่ย/ข้อ", justify="right")
         table.add_column("ช้าสุด", justify="right")
         table.add_column("ข้อที่ตก")
         for sm in summaries:
             table.add_row(
-                sm["model"], f"{sm['passed']}/{sm['cases']}", f"{sm['avg_seconds']}s",
+                sm["model"], f"{sm['passed']}/{sm['cases']}", "-" if sm["judge_avg"] is None else f"{sm['judge_avg']:.2f}", f"{sm['avg_seconds']}s",
                 f"{sm['max_seconds']}s", ", ".join(sm["failed_ids"]) or "-",
             )
         console.print(table)

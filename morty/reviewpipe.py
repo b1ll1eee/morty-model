@@ -29,6 +29,32 @@ ASPECTS = [
 ]
 
 FINDING_RE = re.compile(r"^\s*[-*•]?\s*\[(bug|risk|style)\]\s*(.+)$", re.IGNORECASE)
+
+# JSON schema สำหรับ structured output ของ Ollama ลดการพึ่ง regex เมื่อโมเดลเปลี่ยนถ้อยคำ
+FINDINGS_SCHEMA = {
+    "type": "object",
+    "properties": {"findings": {"type": "array", "items": {
+        "type": "object",
+        "properties": {
+            "severity": {"type": "string", "enum": ["bug", "risk", "style"]},
+            "line": {"type": "string", "description": "เลขบรรทัดหรือชื่อฟังก์ชัน"},
+            "problem": {"type": "string"}, "why": {"type": "string"}, "fix": {"type": "string"},
+        },
+        "required": ["severity", "line", "problem"]}}},
+    "required": ["findings"],
+}
+VERIFY_SCHEMA = {
+    "type": "object",
+    "properties": {"decisions": {"type": "array", "items": {
+        "type": "object",
+        "properties": {
+            "n": {"type": "integer"},
+            "verdict": {"type": "string", "enum": ["KEEP", "DROP", "DOWNGRADE"]},
+            "reason": {"type": "string"},
+        },
+        "required": ["n", "verdict"]}}},
+    "required": ["decisions"],
+}
 RUFF_BUG = {"F821", "F822", "F823", "F811", "F601", "F602", "F631", "F632", "F702", "F704", "F706", "F707", "E999", "B006", "B008", "B015", "B018", "B020", "B023", "B904", "F841"}
 RUFF_RISK_PREFIX = ("S", "B")  # bandit-rules ใน ruff และ bugbear ที่เหลือ
 
@@ -139,6 +165,28 @@ def analyze_snippet(code: str, lang: str) -> list[Finding]:
 # ---------- 2. โมเดลตรวจทีละหัวข้อ ----------
 
 def parse_findings(text: str, source: str) -> list[Finding]:
+    """อ่าน finding จาก JSON ตาม FINDINGS_SCHEMA ถ้าไม่ใช่ JSON ถอยไปอ่านบรรทัด [bug] ... แบบเดิม"""
+    try:
+        data = json.loads(text)
+        items = data.get("findings", []) if isinstance(data, dict) else []
+    except (json.JSONDecodeError, AttributeError):
+        items = None
+    if items is not None:
+        out = []
+        for it in items:
+            sev = str(it.get("severity", "")).lower()
+            if sev not in SEVERITY_ORDER or not it.get("problem"):
+                continue
+            where = str(it.get("line", "")).strip()
+            if where and not re.search(r"บรรทัด|line|def |\(\)", where):
+                where = f"บรรทัด {where}" if re.match(r"^[\d\s,-]+$", where) else where
+            parts = [it["problem"].strip()]
+            if it.get("why"):
+                parts.append(it["why"].strip())
+            if it.get("fix"):
+                parts.append("ควรแก้: " + it["fix"].strip())
+            out.append(Finding(sev, f"{where}: {' '.join(parts)}" if where else " ".join(parts), source))
+        return out
     out = []
     for line in text.splitlines():
         m = FINDING_RE.match(line)
@@ -153,18 +201,37 @@ def model_pass(prof: profiles.Profile, model: str, code_prompt: str, aspect: tup
     system = (
         prof.system
         + f"\n\nรอบนี้: {title}\n{instruction}\n"
-        "ตอบเป็นรายการ finding เท่านั้น บรรทัดละข้อ ขึ้นต้นด้วย [bug] [risk] หรือ [style] ตามด้วย บรรทัด: ปัญหา เพราะอะไร ควรแก้อย่างไร\n"
-        "ถ้าไม่พบในหัวข้อนี้ให้ตอบคำเดียวว่า ไม่พบ\n"
+        "ตอบเป็น JSON {\"findings\": [{\"severity\": bug|risk|style, \"line\": เลขบรรทัด, \"problem\": ..., \"why\": ..., \"fix\": ...}]}\n"
+        "ถ้าไม่พบในหัวข้อนี้ให้ตอบ {\"findings\": []}\n"
         "สิ่งที่เครื่องมืออัตโนมัติหรือรอบก่อนพบแล้ว ไม่ต้องรายงานซ้ำ:\n" + known_txt
     )
     text = llm.chat([{"role": "system", "content": system}, {"role": "user", "content": code_prompt}],
-                    model=model, **prof.options)
+                    model=model, **{**prof.options, "format": FINDINGS_SCHEMA})
     return parse_findings(text, f"model:{key}")
 
 
 # ---------- 3. ตรวจซ้ำ ----------
 
 VERIFY_RE = re.compile(r"^\s*(\d+)\s*[:.)-]\s*(KEEP|DROP|DOWNGRADE)\b(.*)$", re.IGNORECASE)
+
+
+def parse_decisions(text: str) -> dict[int, tuple[str, str]]:
+    """อ่านคำตัดสินจาก JSON ตาม VERIFY_SCHEMA ถ้าไม่ใช่ JSON ถอยไปอ่านบรรทัด N: KEEP - เหตุผล"""
+    decisions: dict[int, tuple[str, str]] = {}
+    try:
+        data = json.loads(text)
+        for d in data.get("decisions", []):
+            v = str(d.get("verdict", "")).upper()
+            if v in ("KEEP", "DROP", "DOWNGRADE"):
+                decisions[int(d["n"])] = (v, str(d.get("reason", "")).strip())
+        return decisions
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError, ValueError):
+        pass
+    for line in text.splitlines():
+        m = VERIFY_RE.match(line)
+        if m:
+            decisions[int(m.group(1))] = (m.group(2).upper(), m.group(3).strip(" -:"))
+    return decisions
 
 
 def verify(prof: profiles.Profile, model: str, code_prompt: str, findings: list[Finding]) -> tuple[list[Finding], int]:
@@ -179,16 +246,12 @@ def verify(prof: profiles.Profile, model: str, code_prompt: str, findings: list[
         "- DOWNGRADE ถ้าเป็นเรื่องจริงแต่ไม่ทำให้พัง เป็นแค่ควรปรับ (จะกลายเป็น style)\n"
         "- DROP ถ้ายกอินพุตที่ทำให้พังไม่ได้ เป็นการสมมติจากโค้ดที่มองไม่เห็น หรือเป็นแบบแผนที่ถูกต้องอยู่แล้ว "
         "(เช่น except เฉพาะชนิด, การไม่ตรวจชนิดไฟล์ที่ผู้เรียกรับผิดชอบ)\n"
-        "ตอบบรรทัดละข้อในรูปแบบ  N: KEEP|DROP|DOWNGRADE - เหตุผลสั้นๆ  ห้ามเพิ่ม finding ใหม่"
+        "ตอบเป็น JSON {\"decisions\": [{\"n\": ลำดับ, \"verdict\": KEEP|DROP|DOWNGRADE, \"reason\": เหตุผลสั้นๆ}]} ให้ครบทุกข้อ ห้ามเพิ่ม finding ใหม่"
     )
     user = f"{code_prompt}\n\n### finding ที่ต้องตรวจ\n{listing}"
     text = llm.chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                    model=model, **{**prof.options, "temperature": 0.0})
-    decisions: dict[int, tuple[str, str]] = {}
-    for line in text.splitlines():
-        m = VERIFY_RE.match(line)
-        if m:
-            decisions[int(m.group(1))] = (m.group(2).upper(), m.group(3).strip(" -:"))
+                    model=model, **{**prof.options, "temperature": 0.0, "format": VERIFY_SCHEMA})
+    decisions = parse_decisions(text)
     kept: list[Finding] = []
     dropped = 0
     for f in findings:

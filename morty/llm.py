@@ -20,6 +20,9 @@ def _split(options: dict) -> tuple[dict, dict]:
     if "think" in options:
         # โมเดลตระกูล qwen3 มีโหมดคิดยาว think=False ปิดเพื่อให้ตอบเร็ว โมเดลอื่นเพิกเฉยค่านี้
         request["think"] = options.pop("think")
+    if "format" in options:
+        # structured output: dict = JSON schema, "json" = JSON อะไรก็ได้
+        request["format"] = options.pop("format")
     return request, options
 
 

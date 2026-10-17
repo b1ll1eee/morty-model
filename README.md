@@ -77,6 +77,7 @@ flowchart TB
 .venv/bin/python -m morty.log to-eval dev >> evals/dev.jsonl            # แปลงเป็นข้อสอบ แล้วเติมคำตอบที่คาดหวัง
 .venv/bin/python -m morty.evaluate dev                                  # 12 ข้อ ผ่านกี่ข้อ ใช้เวลาเท่าไร
 .venv/bin/python -m morty.evaluate dev --models qwen2.5:7b,qwen3:14b    # เทียบโมเดลในรอบเดียว
+.venv/bin/python -m morty.evaluate dev --judge --repeat 3               # ให้กรรมการให้คะแนน 0-2 และวัดความนิ่ง
 .venv/bin/python -m morty.dashboard --open                              # dashboard: คะแนน eval, latency, การใช้งาน, rating, เครื่องมือ
 ```
 

@@ -72,3 +72,17 @@ def test_pipeline_with_fake_model(fake_chat):
     assert sev == ["bug", "style"]
     assert report.findings[0].verified and "xs = []" in report.findings[0].note
     assert calls[-1]["options"]["temperature"] == 0.0
+
+
+def test_parse_findings_json_and_fallback():
+    js = '{"findings": [{"severity": "bug", "line": "3", "problem": "IndexError เมื่อ xs ว่าง", "why": "xs[0]", "fix": "เช็คก่อน"}, {"severity": "nope", "line": "1", "problem": "x"}]}'
+    out = rp.parse_findings(js, "model:x")
+    assert len(out) == 1 and out[0].severity == "bug" and out[0].text.startswith("บรรทัด 3: IndexError")
+    assert "ควรแก้: เช็คก่อน" in out[0].text
+    assert rp.parse_findings('{"findings": []}', "m") == []
+    assert rp.parse_findings("[risk] บรรทัด 2: y", "m")[0].severity == "risk"
+
+
+def test_parse_decisions_json_and_fallback():
+    assert rp.parse_decisions('{"decisions": [{"n": 1, "verdict": "keep", "reason": "xs=[]"}, {"n": 2, "verdict": "DROP"}]}') == {1: ("KEEP", "xs=[]"), 2: ("DROP", "")}
+    assert rp.parse_decisions("1: DOWNGRADE - เล็กน้อย") == {1: ("DOWNGRADE", "เล็กน้อย")}
