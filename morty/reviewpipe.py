@@ -1,9 +1,8 @@
-"""pipeline ตรวจโค้ดของ morty-reviewer: analyzer → ตรวจหลายรอบแยกหัวข้อ → ตรวจซ้ำ finding → รวมผล
+"""การตรวจโค้ดของ morty-reviewer
 
-1. static analyzer (ruff + bandit) บนไฟล์ Python จับคลาสบั๊กที่เครื่องมือจับได้แน่นอน ไม่ต้องหวังพึ่งโมเดล
-2. โมเดลตรวจทีละหัวข้อ (ความถูกต้อง, ความปลอดภัย, ความทนทาน, style) โมเดลเล็กทำงานแคบได้ดีกว่างานกว้าง
-3. รอบตรวจซ้ำ: ทุก finding ระดับ bug/risk ต้องยกอินพุตที่ทำให้พังจริงได้ ไม่ได้ก็ถอน ลด false positive
-4. รวม ตัดซ้ำ เรียงตามความรุนแรง แสดงในรูปแบบเดียวกับ reviewer ปกติ
+ค่าเริ่มต้น (single_review): โมเดลตรวจรอบเดียว + ผล ruff/bandit แนบท้าย (วัดแล้วจับบั๊กได้ครบที่สุดและเร็วสุด)
+--pipeline (review): analyzer → โมเดลตรวจรอบเดียว → รอบตรวจซ้ำที่ทุก finding ระดับ bug/risk ต้องยกอินพุตที่ทำให้พังจริงได้
+ไม่ได้ก็ถอน (ลด false positive) → รวม ตัดซ้ำ เรียงตามความรุนแรง
 """
 from __future__ import annotations
 
@@ -21,14 +20,7 @@ from . import config, llm, profiles
 Event = Callable[[str, str], None]
 SEVERITY_ORDER = {"bug": 0, "risk": 1, "style": 2}
 
-ASPECTS = [
-    ("correctness", "ความถูกต้อง", "ตรวจเฉพาะความถูกต้องของ logic: บั๊ก, เงื่อนไขขอบ (off-by-one, ค่าว่าง, None), การจัดการข้อผิดพลาด, resource ที่ไม่ถูกปิด, สัญญาของฟังก์ชันตามคอมเมนต์และ type hint (เช่น เรียก coroutine โดยไม่ await) ไม่ต้องพูดเรื่องความปลอดภัยหรือ style"),
-    ("security", "ความปลอดภัย", "ตรวจเฉพาะความปลอดภัย: injection ทุกชนิด (SQL, shell, path traversal, template), ความลับที่ฝังในโค้ด, input ที่ไม่ได้ตรวจ, สิทธิ์, deserialization ที่อันตราย ไม่ต้องพูดเรื่องอื่น"),
-    ("robustness", "ความทนทาน", "ตรวจเฉพาะความทนทาน: การทำงานพร้อมกัน, timeout, retry, การหารด้วยศูนย์, overflow, ค่า default ที่อันตราย (mutable default), การเทียบ float, พฤติกรรมเมื่ออินพุตผิดรูป ไม่ต้องพูดเรื่องอื่น"),
-    ("style", "ความชัดเจน", "ตรวจเฉพาะความชัดเจนและการดูแลรักษา รายงานเฉพาะที่กระทบการอ่านหรือแก้ไขจริงในระดับ [style] เท่านั้น ห้ามยกระดับเป็น bug หรือ risk ถ้าไม่มีอะไรสำคัญให้ตอบว่าไม่พบ"),
-]
-
-# โหมด lite: analyzer + ตรวจรอบเดียวครบทุกหัวข้อ + ตรวจซ้ำ (เร็วกว่า thorough ราว 2.5 เท่า)
+# รอบตรวจของโมเดล: ครบทุกหัวข้อในคำขอเดียว (วัดแล้วว่าแยก 4 รอบไม่เพิ่ม recall แต่ช้า 5 เท่า)
 ASPECT_ALL = ("all", "ทุกหัวข้อ", "ตรวจครบทั้ง 4 หัวข้อ: ความถูกต้อง (บั๊ก เงื่อนไขขอบ None resource สัญญาของฟังก์ชันตามคอมเมนต์และ type hint เช่นเรียก coroutine โดยไม่ await), ความปลอดภัย (injection ทุกชนิด secret ในโค้ด input ไม่ได้ตรวจ), ความทนทาน (พร้อมกัน timeout หารศูนย์ mutable default เทียบ float), ความชัดเจน (เฉพาะที่กระทบจริง ระดับ style เท่านั้น)")
 
 FINDING_RE = re.compile(r"^\s*[-*•]?\s*\[(bug|risk|style)\]\s*(.+)$", re.IGNORECASE)
@@ -325,12 +317,9 @@ def render_single(text: str, report: Report) -> str:
 
 
 def review(code_prompt: str, *, py_files: list[Path] | None = None, snippet: tuple[str, str] | None = None,
-           model: str | None = None, profile_name: str = "reviewer", on_event: Event | None = None,
-           aspects: list[tuple] | None = None, thorough: bool = False) -> Report:
-    """code_prompt = ข้อความที่ให้โมเดลดู (มีโค้ดอยู่แล้ว); py_files หรือ snippet=(code, lang) สำหรับ analyzer
-    thorough=True ตรวจ 4 รอบแยกหัวข้อ, ค่าเริ่มต้น (lite) ตรวจรอบเดียวครบทุกหัวข้อ ทั้งสองแบบมี analyzer และรอบตรวจซ้ำ"""
-    if aspects is None:
-        aspects = ASPECTS if thorough else [ASPECT_ALL]
+           model: str | None = None, profile_name: str = "reviewer", on_event: Event | None = None) -> Report:
+    """pipeline: analyzer → โมเดลตรวจรอบเดียว → ตรวจซ้ำ; py_files หรือ snippet=(code, lang) สำหรับ analyzer"""
+    aspects = [ASPECT_ALL]
     prof = profiles.load(profile_name)
     model = model or prof.model or config.MODEL
     report = Report()

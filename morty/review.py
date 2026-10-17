@@ -8,8 +8,8 @@
          .venv/bin/python -m morty.review app.py --quick                  # รอบเดียว เร็ว ไม่มี analyzer/ตรวจซ้ำ
 
 ค่าเริ่มต้น: โมเดลตรวจรอบเดียว (โหมดที่วัดแล้วจับบั๊กได้ครบที่สุด) แล้วแนบผล ruff + bandit ต่อท้าย
---pipeline เพิ่มรอบตรวจซ้ำทุก finding (ลด false positive แลกเวลา ~2 เท่า)  --thorough ตรวจ 4 รอบแยกหัวข้อ (~5 เท่า)
---quick ไม่รัน analyzer (ดู reviewpipe.py และผลวัดใน docs/reference.md)
+--pipeline เพิ่มรอบตรวจซ้ำทุก finding (ลด false positive แลกเวลา ~2 เท่า)  --quick ไม่รัน analyzer
+(ดู reviewpipe.py และผลวัดใน docs/reference.md)
 ไฟล์จะถูกใส่เลขบรรทัดให้ เพื่อให้ reviewer อ้างอิงบรรทัดได้แม่นยำ
 """
 from __future__ import annotations
@@ -78,7 +78,6 @@ def main() -> None:
     parser.add_argument("--focus", default=None, help="ประเด็นที่อยากให้เน้น เช่น ความปลอดภัย")
     parser.add_argument("--quick", action="store_true", help="รอบเดียว ไม่รัน analyzer")
     parser.add_argument("--pipeline", action="store_true", help="เพิ่มรอบตรวจซ้ำทุก finding (ลด false positive)")
-    parser.add_argument("--thorough", action="store_true", help="ตรวจ 4 รอบแยกหัวข้อ + ตรวจซ้ำ (ช้าสุด)")
     args = parser.parse_args()
 
     console = Console(stderr=True)
@@ -116,7 +115,7 @@ def main() -> None:
             pass
         sys.stdout.write("\n")
         answer = "".join(parts_out)
-    elif not (args.pipeline or args.thorough):
+    elif not args.pipeline:
         text, report = reviewpipe.single_review(
             prompt, py_files=py_files or None, snippet=snippet, model=model, profile_name=prof.name,
             on_event=lambda kind, msg: console.print(f"[dim]• {msg}[/]"),
@@ -128,12 +127,12 @@ def main() -> None:
     else:
         report = reviewpipe.review(
             prompt, py_files=py_files or None, snippet=snippet, model=model, profile_name=prof.name,
-            on_event=lambda kind, msg: console.print(f"[dim]• {msg}[/]"), thorough=args.thorough,
+            on_event=lambda kind, msg: console.print(f"[dim]• {msg}[/]"),
         )
         answer = report.render()
         sys.stdout.write(answer + "\n")
         meta = {
-            "mode": "thorough" if args.thorough else "pipeline", "passes": report.passes, "dropped": report.verified_dropped,
+            "mode": "pipeline", "passes": report.passes, "dropped": report.verified_dropped,
             "analyzer": report.analyzer_ran,
             "findings": {s: sum(1 for f in report.findings if f.severity == s) for s in ("bug", "risk", "style")},
         }

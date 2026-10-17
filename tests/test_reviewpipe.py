@@ -64,25 +64,6 @@ def test_analyze_snippet_ignores_non_python():
     assert rp.analyze_snippet("console.log(1)", "javascript") == []
 
 
-def test_pipeline_with_fake_model(fake_chat):
-    queue, calls = fake_chat
-    code = "def f(xs):\n    return xs[0]\n\ndef g(d):\n    return d['k']\n"
-    prompt = f"ทบทวนโค้ดนี้:\n```python\n{code}```"
-    queue += [
-        "[bug] บรรทัด 2: xs ว่างจะ IndexError ควรเช็คก่อน",   # correctness
-        "ไม่พบ",                                              # security
-        "[risk] บรรทัด 5: d อาจไม่มี key k",                   # robustness (คนละบรรทัดกับ bug จึงไม่ถูก merge)
-        "[style] บรรทัด 1: ควรใส่ type hint",                 # style
-        "1: KEEP - xs = []\n2: DROP - สมมติเกินโค้ดที่เห็น",     # verify
-    ]
-    report = rp.review(prompt, snippet=(code, "python"), model="m", thorough=True)
-    assert report.passes == 4 and report.verified_dropped == 1
-    sev = sorted(f.severity for f in report.findings)
-    assert sev == ["bug", "style"]
-    assert report.findings[0].verified and "xs = []" in report.findings[0].note
-    assert calls[-1]["options"]["temperature"] == 0.0
-
-
 def test_parse_findings_json_and_fallback():
     js = '{"findings": [{"severity": "bug", "line": "3", "problem": "IndexError เมื่อ xs ว่าง", "why": "xs[0]", "fix": "เช็คก่อน"}, {"severity": "nope", "line": "1", "problem": "x"}]}'
     out = rp.parse_findings(js, "model:x")

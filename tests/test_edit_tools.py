@@ -41,22 +41,3 @@ def test_write_file_creates_and_overwrites(workspace):
 
 def test_write_file_outside_workspace_rejected(workspace):
     assert "นอก workspace" in tools.call(ws(workspace), "write_file", {"path": "../evil.py", "content": "x"})
-
-
-def test_apply_patch_applies_and_rejects_bad_input(workspace):
-    patch = (
-        "--- a/pkg/a.py\n+++ b/pkg/a.py\n@@ -1,2 +1,2 @@\n def hello():\n-    return 'hi'\n+    return 'patched'\n"
-    )
-    assert tools.apply_patch(ws(workspace), patch) == "ใช้ patch แล้ว"
-    assert "return 'patched'" in (workspace / "pkg/a.py").read_text(encoding="utf-8")
-    assert "unified diff" in tools.apply_patch(ws(workspace), "not a patch")
-    bad = "--- a/pkg/a.py\n+++ b/pkg/a.py\n@@ -1,1 +1,1 @@\n-this line does not exist\n+x\n"
-    assert "patch ใช้ไม่ได้" in tools.apply_patch(ws(workspace), bad)
-    escape = "--- a/../x.py\n+++ b/../x.py\n@@ -0,0 +1 @@\n+x\n"
-    assert "นอก workspace" in tools.apply_patch(ws(workspace), escape)
-
-
-def test_apply_patch_denied(workspace):
-    patch = "--- a/pkg/a.py\n+++ b/pkg/a.py\n@@ -1,2 +1,2 @@\n def hello():\n-    return 'hi'\n+    return 'no'\n"
-    assert "ไม่อนุญาต" in tools.apply_patch(ws(workspace, allow=False), patch)
-    assert "return 'hi'" in (workspace / "pkg/a.py").read_text(encoding="utf-8")

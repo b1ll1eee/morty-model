@@ -1,7 +1,7 @@
 """เครื่องมือที่โมเดลเรียกใช้ได้ (tool calling) ทำงานภายใน workspace ที่กำหนดเท่านั้น
 
 เครื่องมืออ่านอย่างเดียว (read_file, list_dir, search_code, git) ทำงานทันที
-เครื่องมือที่รันคำสั่ง (run_command, run_python) และที่แก้ไฟล์ (edit_file, write_file, apply_patch)
+เครื่องมือที่รันคำสั่ง (run_command, run_python) และที่แก้ไฟล์ (edit_file, write_file)
 ต้องผ่าน confirm callback ก่อนทุกครั้ง โดยแสดง diff ของสิ่งที่จะเปลี่ยนให้ผู้ใช้เห็นก่อน
 ทุกผลลัพธ์ถูกตัดความยาวเพื่อไม่ให้ context ของโมเดลล้น
 """
@@ -12,7 +12,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -160,44 +159,6 @@ def write_file(ws: Workspace, path: str, content: str, overwrite: bool = False) 
     return f"{what} {path} แล้ว ({len(content.splitlines())} บรรทัด)"
 
 
-def apply_patch(ws: Workspace, patch: str) -> str:
-    """ใช้ unified diff กับไฟล์ใน workspace (ผ่าน git apply --recount จึงทนเลขบรรทัดใน hunk ที่คลาดเคลื่อน)"""
-    if "+++ " not in patch or "@@" not in patch:
-        return "patch ต้องเป็น unified diff (มีบรรทัด --- a/..., +++ b/... และ @@) ถ้าแก้จุดเล็กๆ ใช้ edit_file ง่ายกว่า"
-    if not patch.endswith("\n"):
-        patch += "\n"
-    with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False, encoding="utf-8") as tmp:
-        tmp.write(patch)
-        tmp_path = tmp.name
-    # รันใน cwd = workspace โดยตรง โมเดลมักให้ context ไม่ครบและนับบรรทัดใน @@ ผิด
-    # git apply ปกติจะปฏิเสธ hunk ที่ context ท้ายไม่ครบถ้าไม่ได้อยู่ท้ายไฟล์ จึงลองชุดตัวเลือกจากเข้มไปผ่อน
-    # ทุกชุดยังตรวจว่าบรรทัด context/ลบ ตรงกับไฟล์จริง patch ที่อ้างบรรทัดไม่มีอยู่จะไม่ผ่านอยู่ดี
-    attempts = [[], ["--unidiff-zero"], ["--recount"], ["--recount", "--unidiff-zero"], ["-C0"]]
-    try:
-        for target in re.findall(r"^\+\+\+ b/(.+)$", patch, re.M):
-            ws.resolve(target)  # กัน patch ที่ชี้ออกนอก workspace
-        chosen: list[str] | None = None
-        last_err = ""
-        for opts in attempts:
-            check = subprocess.run(["git", "apply", *opts, "--whitespace=nowarn", "--check", tmp_path],
-                                   capture_output=True, text=True, cwd=ws.root, timeout=20)
-            if check.returncode == 0:
-                chosen = opts
-                break
-            last_err = check.stderr.strip()
-        if chosen is None:
-            return f"patch ใช้ไม่ได้: {last_err[:500]}\nให้ read_file ดูเนื้อหาปัจจุบันแล้วใช้ edit_file แทน"
-        if not ws.confirm(f"ใช้ patch:\n{patch if len(patch) <= 4000 else patch[:4000] + '...'}"):
-            return "ผู้ใช้ไม่อนุญาตให้ใช้ patch นี้"
-        r = subprocess.run(["git", "apply", *chosen, "--whitespace=nowarn", tmp_path],
-                           capture_output=True, text=True, cwd=ws.root, timeout=20)
-        return "ใช้ patch แล้ว" if r.returncode == 0 else f"ใช้ patch ไม่สำเร็จ: {r.stderr.strip()[:500]}"
-    except PermissionError as e:
-        return str(e)
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-
-
 def _run(cmd: list[str], cwd: Path, timeout: int) -> str:
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
@@ -213,7 +174,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> str:
 ALL_TOOLS: dict[str, Callable] = {
     "read_file": read_file, "list_dir": list_dir, "search_code": search_code,
     "git": git, "run_command": run_command, "run_python": run_python,
-    "edit_file": edit_file, "write_file": write_file, "apply_patch": apply_patch,
+    "edit_file": edit_file, "write_file": write_file,
 }
 
 SCHEMAS = {
@@ -263,11 +224,6 @@ SCHEMAS = {
             "path": {"type": "string"}, "content": {"type": "string", "description": "เนื้อหาทั้งไฟล์"},
             "overwrite": {"type": "boolean", "description": "true เมื่อตั้งใจแทนที่ไฟล์เดิมทั้งไฟล์"}},
             "required": ["path", "content"]}}},
-    "apply_patch": {"type": "function", "function": {
-        "name": "apply_patch", "description": "ใช้ unified diff (--- a/path, +++ b/path, @@) กับไฟล์ใน workspace ผู้ใช้อนุญาตก่อน ใช้เมื่อแก้หลายจุดในหลายไฟล์พร้อมกัน ถ้าไม่แน่ใจรูปแบบ ให้ใช้ edit_file",
-        "parameters": {"type": "object", "properties": {
-            "patch": {"type": "string", "description": "ข้อความ unified diff ทั้งก้อน"}},
-            "required": ["patch"]}}},
 }
 
 

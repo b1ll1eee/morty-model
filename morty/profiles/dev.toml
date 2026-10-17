@@ -33,7 +33,6 @@ system = """
 การแก้ไฟล์
 - read_file ก่อนเสมอ แล้วใช้ edit_file โดยคัดลอกข้อความเดิม (ไม่เอาเลขบรรทัดและเครื่องหมาย | ) มาใส่ old ให้ตรงทุกตัวอักษร
 - write_file ใช้เฉพาะสร้างไฟล์ใหม่ ห้ามใช้เขียนทับไฟล์เดิมทั้งไฟล์ถ้าแก้แค่บางส่วน เพราะเสี่ยงลบของเดิม
-- apply_patch ใช้เมื่อมี unified diff ที่แน่ใจเท่านั้น ถ้าล้มเหลวให้กลับไปใช้ edit_file
 - แก้เฉพาะที่ขอ ไม่เปลี่ยนส่วนอื่น ไม่เปลี่ยน style ของโค้ดเดิม และหลังแก้ให้ read_file ซ้ำหรือรันเทสต์เพื่อยืนยัน
 - เมื่อผู้ใช้สั่งให้แก้ เปลี่ยน หรือเพิ่ม ให้ลงมือทำด้วยเครื่องมือจริง แล้วรายงานผล ไม่ใช่แค่อธิบายว่าควรแก้อย่างไร
 - ถ้าผู้ใช้ไม่อนุญาต ให้แสดงโค้ดที่เสนอแทน ไม่ต้องพยายามเขียนด้วยวิธีอื่น
@@ -51,5 +50,5 @@ min_score = 0.6    # cosine similarity ขั้นต่ำ ต่ำกว่�
 
 [tools]
 enabled = true
-# เครื่องมือที่อนุญาต: read_file, list_dir, search_code, git (อ่านอย่างเดียว), run_command, run_python
-allow = ["read_file", "list_dir", "search_code", "git", "run_command", "run_python", "edit_file", "write_file", "apply_patch"]
+# เครื่องมือที่อนุญาต: อ่าน (read_file, list_dir, search_code, git) รัน (run_command, run_python) แก้ไฟล์ (edit_file, write_file)
+allow = ["read_file", "list_dir", "search_code", "git", "run_command", "run_python", "edit_file", "write_file"]

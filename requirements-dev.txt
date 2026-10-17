@@ -1,0 +1,3 @@
+# สำหรับพัฒนาและ CI เท่านั้น
+-r requirements.txt
+pytest==9.1.1
