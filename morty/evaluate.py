@@ -3,6 +3,7 @@
 ใช้งาน:  .venv/bin/python -m morty.evaluate dev
          .venv/bin/python -m morty.evaluate dev --model qwen3:14b --show
          .venv/bin/python -m morty.evaluate dev --models qwen2.5:7b,qwen2.5-coder:7b,qwen3:14b
+         .venv/bin/python -m morty.evaluate dev --set dev-edit --tools --allow-run --workspace-template evals/fixtures/edit
 
 ไฟล์คำถามอยู่ที่ evals/<profile>.jsonl หนึ่งบรรทัดต่อหนึ่งข้อ รูปแบบ
   {"id": "py-json", "q": "คำถาม", "expect_any": ["คำที่ควรมีอย่างน้อยหนึ่งคำ"],
@@ -19,6 +20,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +42,22 @@ def load_cases(name: str) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def check_files(case: dict, workspace: Path | None) -> list[str]:
+    """ตรวจสภาพไฟล์ใน workspace หลังโมเดลทำงาน ตาม expect_file ของข้อนั้น"""
+    spec = case.get("expect_file")
+    if not spec:
+        return []
+    if workspace is None:
+        return ["ข้อนี้ต้องรันด้วย --tools และ --workspace-template"]
+    p = workspace / spec["path"]
+    if not p.is_file():
+        return [f"ไม่มีไฟล์ {spec['path']}"]
+    text = p.read_text(encoding="utf-8", errors="replace")
+    fails = [f"ไฟล์ขาด: {k}" for k in spec.get("contains", []) if k not in text]
+    fails += [f"ไฟล์ไม่ควรมี: {k}" for k in spec.get("not_contains", []) if k in text]
+    return fails
+
+
 def check(case: dict, answer: str) -> list[str]:
     """คืนรายการเหตุผลที่ตก ถ้าว่างแปลว่าผ่าน"""
     low = answer.lower()
@@ -54,9 +73,10 @@ def check(case: dict, answer: str) -> list[str]:
     return fails
 
 
-def ask_with_tools(profile_name: str, model: str, question: str, allow_run: bool) -> str:
+def ask_with_tools(profile_name: str, model: str, question: str, allow_run: bool,
+                   workspace: Path | None = None) -> str:
     prof = profiles.load(profile_name)
-    ws = agent.make_workspace(Path(config.ROOT), prof, confirm=lambda desc: allow_run)
+    ws = agent.make_workspace(workspace or Path(config.ROOT), prof, confirm=lambda desc: allow_run)
     messages = [{"role": "system", "content": prof.system}, {"role": "user", "content": question}]
     answer, _ = agent.run(messages, model=model, options={**prof.options}, ws=ws)
     return answer
@@ -106,7 +126,7 @@ def ask_with_pipeline(profile_name: str, model: str, question: str, thorough: bo
 
 def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bool, console: Console,
         use_tools: bool = False, allow_run: bool = False, use_pipeline: bool = False, thorough: bool = False,
-        judge_model: str | None = None, repeat: int = 1) -> list[dict]:
+        judge_model: str | None = None, repeat: int = 1, workspace_template: Path | None = None) -> list[dict]:
     """รัน eval ด้วยโมเดลเดียว (แต่ละข้อ repeat รอบ) พิมพ์ตาราง และคืน record ต่อข้อต่อรอบ"""
     console.print(
         f"eval [magenta]{profile_name}[/] {len(cases)} ข้อ ด้วยโมเดล [cyan]{model}[/] "
@@ -126,14 +146,23 @@ def run(profile_name: str, model: str, cases: list[dict], *, rag: bool, show: bo
     for case in cases:
         for run_idx in range(repeat):
             t0 = time.perf_counter()
+            work: Path | None = None
+            tmp: str | None = None
+            if workspace_template is not None:
+                # สำเนาใหม่ทุกข้อ โมเดลจึงแก้สำเนา ไม่ใช่ต้นฉบับ และแต่ละข้อไม่เห็นผลของข้อก่อน
+                tmp = tempfile.mkdtemp(prefix="morty-eval-")
+                work = Path(tmp) / "work"
+                shutil.copytree(workspace_template, work)
             if use_pipeline:
                 answer = ask_with_pipeline(profile_name, model, case["q"], thorough)
             elif use_tools:
-                answer = ask_with_tools(profile_name, model, case["q"], allow_run)
+                answer = ask_with_tools(profile_name, model, case["q"], allow_run, workspace=work)
             else:
                 answer = llm.ask(case["q"], profile=profile_name, model=model, rag=rag)
             dt = time.perf_counter() - t0
-            fails = check(case, answer)
+            fails = check(case, answer) + check_files(case, work)
+            if tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
             ok = not fails
             records.append({**case, "model": model, "model_digest": digest, "rag": rag, "answer": answer,
                             "pass": ok, "fails": fails, "seconds": round(dt, 2), "run": run_idx + 1,
@@ -205,7 +234,9 @@ def main() -> None:
     parser.add_argument("--no-rag", action="store_true", help="ปิด RAG เพื่อเทียบผลก่อนและหลัง")
     parser.add_argument("--set", default=None, help="ชื่อชุด eval ใน evals/ (ค่าเริ่มต้น = ชื่อ profile) เช่น dev-tools")
     parser.add_argument("--tools", action="store_true", help="รันผ่านวงจรเครื่องมือ (workspace = โฟลเดอร์โปรเจกต์)")
-    parser.add_argument("--allow-run", action="store_true", help="อนุญาต run_command/run_python ระหว่าง eval")
+    parser.add_argument("--allow-run", action="store_true", help="อนุญาต run_command/run_python และการแก้ไฟล์ระหว่าง eval")
+    parser.add_argument("--workspace-template", default=None,
+                        help="โฟลเดอร์ต้นแบบ (เช่น evals/fixtures/edit) คัดลอกเป็น workspace ใหม่ทุกข้อ ใช้กับ eval การแก้ไฟล์")
     parser.add_argument("--pipeline", action="store_true", help="reviewer: ใช้ pipeline (analyzer, ตรวจ, ตรวจซ้ำ) แทนรอบเดียว")
     parser.add_argument("--thorough", action="store_true", help="ใช้คู่กับ --pipeline: ตรวจ 4 รอบแยกหัวข้อ")
     parser.add_argument("--judge", action="store_true", help="ให้โมเดลกรรมการให้คะแนน 0-2 ทุกคำตอบ")
@@ -228,7 +259,8 @@ def main() -> None:
     for model in models:
         records = run(args.profile, model, cases, rag=rag, show=args.show, console=console,
                       use_tools=args.tools, allow_run=args.allow_run, use_pipeline=args.pipeline, thorough=args.thorough,
-                      judge_model=args.judge_model if args.judge else None, repeat=args.repeat)
+                      judge_model=args.judge_model if args.judge else None, repeat=args.repeat,
+                      workspace_template=Path(args.workspace_template) if args.workspace_template else None)
         safe = model.replace(":", "_").replace("/", "_")
         mode = ("-tools" if args.tools else ("-thorough" if args.pipeline and args.thorough else ("-pipeline" if args.pipeline else ""))) + (f"-x{args.repeat}" if args.repeat > 1 else "")
         out = out_dir / f"{args.set or args.profile}-{tag}{mode}-{safe}-{stamp}.jsonl"

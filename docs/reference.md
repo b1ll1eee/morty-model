@@ -203,6 +203,16 @@ profile ที่มี `[tools] enabled = true` จะได้เครื่�
 | `git` | เฉพาะคำสั่งอ่าน: status diff log show blame branch ls-files | ไม่ |
 | `run_command` | รัน shell ใน workspace timeout 60s | ใช่ |
 | `run_python` | รันโค้ด Python สั้นๆ | ใช่ |
+| `edit_file` | แทนที่ข้อความ old → new ในไฟล์ (old ต้องพบครั้งเดียว) แสดง diff ก่อน | ใช่ |
+| `write_file` | สร้างไฟล์ใหม่หรือเขียนทับทั้งไฟล์ แสดง diff ก่อน | ใช่ |
+| `apply_patch` | ใช้ unified diff ผ่าน `git apply --recount` ตรวจด้วย `--check` ก่อน | ใช่ |
+
+ลำดับที่ prompt ของ dev สั่ง: read_file → edit_file เป็นหลัก, write_file เฉพาะไฟล์ใหม่, apply_patch เมื่อมี diff ที่แน่ใจ
+และหลังแก้ให้อ่านซ้ำหรือรันเทสต์ยืนยัน ทุกเครื่องมือแก้ไฟล์ถูกกันไม่ให้ออกนอก workspace เหมือนตัวอื่น และ `--yes` จะข้ามการถาม (ไม่แนะนำกับการแก้ไฟล์)
+ไม่มีการสำรองไฟล์อัตโนมัติ: diff ที่แสดงตอนถามคือจุดตรวจสุดท้าย และ git ของโปรเจกต์คือทางย้อนกลับ
+
+eval การแก้ไฟล์: `evals/dev-edit.jsonl` 5 ข้อ รันด้วย `--workspace-template evals/fixtures/edit` ซึ่งคัดลอกโฟลเดอร์ต้นแบบเป็น workspace ใหม่ทุกข้อ
+ตัวตรวจดูสภาพไฟล์จริงหลังทำงาน (`expect_file`: contains / not_contains) ไม่ใช่แค่ข้อความคำตอบ
 
 วงจรอยู่ใน `morty/agent.py`: ถามโมเดลพร้อม schema ของเครื่องมือ ถ้าโมเดลขอใช้ก็รันแล้วส่งผลกลับ วนไม่เกิน 8 รอบ
 ผลทุกชิ้นถูกตัดที่ 12,000 ตัวอักษร path ที่ออกนอก workspace ถูกปฏิเสธ

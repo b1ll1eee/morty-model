@@ -63,3 +63,11 @@ def test_run_judges_after_all_answers(fake_chat, monkeypatch):
     assert all(c["model"] == "m14" for c in calls) and calls[0]["options"]["format"] == evaluate.JUDGE_SCHEMA
     s = evaluate.summary(records)
     assert s["judge_avg"] == 1.5 and s["passed"] == 2
+
+
+def test_check_files(tmp_path):
+    (tmp_path / "a.py").write_text("TIMEOUT = 30\n", encoding="utf-8")
+    case = {"expect_file": {"path": "a.py", "contains": ["TIMEOUT = 30"], "not_contains": ["TIMEOUT = 5"]}}
+    assert evaluate.check_files(case, tmp_path) == []
+    assert evaluate.check_files({"expect_file": {"path": "b.py", "contains": []}}, tmp_path) == ["ไม่มีไฟล์ b.py"]
+    assert evaluate.check_files(case, None) and evaluate.check_files({}, None) == []

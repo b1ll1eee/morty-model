@@ -1,15 +1,18 @@
 """เครื่องมือที่โมเดลเรียกใช้ได้ (tool calling) ทำงานภายใน workspace ที่กำหนดเท่านั้น
 
 เครื่องมืออ่านอย่างเดียว (read_file, list_dir, search_code, git) ทำงานทันที
-เครื่องมือที่รันคำสั่ง (run_command, run_python) ต้องผ่าน confirm callback ก่อนทุกครั้ง
+เครื่องมือที่รันคำสั่ง (run_command, run_python) และที่แก้ไฟล์ (edit_file, write_file, apply_patch)
+ต้องผ่าน confirm callback ก่อนทุกครั้ง โดยแสดง diff ของสิ่งที่จะเปลี่ยนให้ผู้ใช้เห็นก่อน
 ทุกผลลัพธ์ถูกตัดความยาวเพื่อไม่ให้ context ของโมเดลล้น
 """
 from __future__ import annotations
 
+import difflib
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,8 +30,9 @@ class Workspace:
     allow: set[str] = field(default_factory=lambda: set(ALL_TOOLS))
 
     def resolve(self, path: str) -> Path:
-        p = (self.root / path).resolve() if not os.path.isabs(path) else Path(path).resolve()
-        if p != self.root and self.root not in p.parents:
+        root = self.root.resolve()  # กัน symlink เช่น /var → /private/var
+        p = (root / path).resolve() if not os.path.isabs(path) else Path(path).resolve()
+        if p != root and root not in p.parents:
             raise PermissionError(f"อยู่นอก workspace: {path}")
         return p
 
@@ -107,6 +111,89 @@ def run_python(ws: Workspace, code: str) -> str:
     return _run([sys.executable, "-c", code], ws.root, timeout=60)
 
 
+# ---------- แก้ไฟล์ ----------
+
+def _diff(before: str, after: str, name: str) -> str:
+    lines = difflib.unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
+                                 fromfile=f"a/{name}", tofile=f"b/{name}")
+    text = "".join(lines)
+    return text if len(text) <= 4000 else text[:4000] + "\n... (diff ยาว ตัดออก)"
+
+
+def _write(p: Path, content: str) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding="utf-8")
+
+
+def edit_file(ws: Workspace, path: str, old: str, new: str) -> str:
+    """แทนที่ข้อความ old ด้วย new ในไฟล์ old ต้องพบเพียงครั้งเดียว (วิธีที่โมเดลเล็กทำสำเร็จบ่อยที่สุด)"""
+    p = ws.resolve(path)
+    if not p.is_file():
+        return f"ไม่พบไฟล์: {path} (ถ้าจะสร้างไฟล์ใหม่ใช้ write_file)"
+    before = p.read_text(encoding="utf-8")
+    n = before.count(old)
+    if n == 0:
+        return "ไม่พบข้อความ old ในไฟล์ ให้ read_file แล้วคัดลอกข้อความเดิมมาให้ตรงทุกตัวอักษร รวมการเว้นวรรคและขึ้นบรรทัด"
+    if n > 1:
+        return f"พบข้อความ old {n} แห่ง ต้องระบุให้ยาวขึ้นจนไม่ซ้ำกัน"
+    after = before.replace(old, new, 1)
+    if not ws.confirm(f"แก้ไฟล์ {path}:\n{_diff(before, after, path)}"):
+        return "ผู้ใช้ไม่อนุญาตให้แก้ไฟล์นี้ ให้อธิบายการแก้ที่เสนอแทน"
+    _write(p, after)
+    return f"แก้ {path} แล้ว ({len(before.splitlines())} → {len(after.splitlines())} บรรทัด)"
+
+
+def write_file(ws: Workspace, path: str, content: str) -> str:
+    """สร้างไฟล์ใหม่หรือเขียนทับทั้งไฟล์ สำหรับไฟล์เดิมใช้ edit_file จะปลอดภัยกว่า"""
+    p = ws.resolve(path)
+    before = p.read_text(encoding="utf-8") if p.is_file() else ""
+    if before == content:
+        return f"{path} มีเนื้อหานี้อยู่แล้ว ไม่ได้เปลี่ยนอะไร"
+    what = "เขียนทับ" if p.is_file() else "สร้างไฟล์ใหม่"
+    if not ws.confirm(f"{what} {path}:\n{_diff(before, content, path)}"):
+        return "ผู้ใช้ไม่อนุญาตให้เขียนไฟล์นี้ ให้แสดงเนื้อหาที่เสนอแทน"
+    _write(p, content)
+    return f"{what} {path} แล้ว ({len(content.splitlines())} บรรทัด)"
+
+
+def apply_patch(ws: Workspace, patch: str) -> str:
+    """ใช้ unified diff กับไฟล์ใน workspace (ผ่าน git apply --recount จึงทนเลขบรรทัดใน hunk ที่คลาดเคลื่อน)"""
+    if "+++ " not in patch or "@@" not in patch:
+        return "patch ต้องเป็น unified diff (มีบรรทัด --- a/..., +++ b/... และ @@) ถ้าแก้จุดเล็กๆ ใช้ edit_file ง่ายกว่า"
+    if not patch.endswith("\n"):
+        patch += "\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False, encoding="utf-8") as tmp:
+        tmp.write(patch)
+        tmp_path = tmp.name
+    # รันใน cwd = workspace โดยตรง โมเดลมักให้ context ไม่ครบและนับบรรทัดใน @@ ผิด
+    # git apply ปกติจะปฏิเสธ hunk ที่ context ท้ายไม่ครบถ้าไม่ได้อยู่ท้ายไฟล์ จึงลองชุดตัวเลือกจากเข้มไปผ่อน
+    # ทุกชุดยังตรวจว่าบรรทัด context/ลบ ตรงกับไฟล์จริง patch ที่อ้างบรรทัดไม่มีอยู่จะไม่ผ่านอยู่ดี
+    attempts = [[], ["--unidiff-zero"], ["--recount"], ["--recount", "--unidiff-zero"], ["-C0"]]
+    try:
+        for target in re.findall(r"^\+\+\+ b/(.+)$", patch, re.M):
+            ws.resolve(target)  # กัน patch ที่ชี้ออกนอก workspace
+        chosen: list[str] | None = None
+        last_err = ""
+        for opts in attempts:
+            check = subprocess.run(["git", "apply", *opts, "--whitespace=nowarn", "--check", tmp_path],
+                                   capture_output=True, text=True, cwd=ws.root, timeout=20)
+            if check.returncode == 0:
+                chosen = opts
+                break
+            last_err = check.stderr.strip()
+        if chosen is None:
+            return f"patch ใช้ไม่ได้: {last_err[:500]}\nให้ read_file ดูเนื้อหาปัจจุบันแล้วใช้ edit_file แทน"
+        if not ws.confirm(f"ใช้ patch:\n{patch if len(patch) <= 4000 else patch[:4000] + '...'}"):
+            return "ผู้ใช้ไม่อนุญาตให้ใช้ patch นี้"
+        r = subprocess.run(["git", "apply", *chosen, "--whitespace=nowarn", tmp_path],
+                           capture_output=True, text=True, cwd=ws.root, timeout=20)
+        return "ใช้ patch แล้ว" if r.returncode == 0 else f"ใช้ patch ไม่สำเร็จ: {r.stderr.strip()[:500]}"
+    except PermissionError as e:
+        return str(e)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
 def _run(cmd: list[str], cwd: Path, timeout: int) -> str:
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
@@ -122,6 +209,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> str:
 ALL_TOOLS: dict[str, Callable] = {
     "read_file": read_file, "list_dir": list_dir, "search_code": search_code,
     "git": git, "run_command": run_command, "run_python": run_python,
+    "edit_file": edit_file, "write_file": write_file, "apply_patch": apply_patch,
 }
 
 SCHEMAS = {
@@ -158,6 +246,23 @@ SCHEMAS = {
         "parameters": {"type": "object", "properties": {
             "code": {"type": "string", "description": "โค้ด Python ที่ print ผลลัพธ์"}},
             "required": ["code"]}}},
+    "edit_file": {"type": "function", "function": {
+        "name": "edit_file", "description": "แก้ไฟล์ที่มีอยู่โดยแทนที่ข้อความ old (ต้องตรงทุกตัวอักษรและพบครั้งเดียว) ด้วย new ผู้ใช้จะเห็น diff และอนุญาตก่อน ใช้วิธีนี้สำหรับการแก้ส่วนใหญ่",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "old": {"type": "string", "description": "ข้อความเดิมที่คัดลอกมาจาก read_file แบบไม่มีเลขบรรทัด"},
+            "new": {"type": "string", "description": "ข้อความใหม่ที่จะแทนที่"}},
+            "required": ["path", "old", "new"]}}},
+    "write_file": {"type": "function", "function": {
+        "name": "write_file", "description": "สร้างไฟล์ใหม่ หรือเขียนทับทั้งไฟล์ (ผู้ใช้เห็น diff และอนุญาตก่อน) ใช้สำหรับไฟล์ใหม่ สำหรับไฟล์เดิมให้ใช้ edit_file",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}, "content": {"type": "string", "description": "เนื้อหาทั้งไฟล์"}},
+            "required": ["path", "content"]}}},
+    "apply_patch": {"type": "function", "function": {
+        "name": "apply_patch", "description": "ใช้ unified diff (--- a/path, +++ b/path, @@) กับไฟล์ใน workspace ผู้ใช้อนุญาตก่อน ใช้เมื่อแก้หลายจุดในหลายไฟล์พร้อมกัน ถ้าไม่แน่ใจรูปแบบ ให้ใช้ edit_file",
+        "parameters": {"type": "object", "properties": {
+            "patch": {"type": "string", "description": "ข้อความ unified diff ทั้งก้อน"}},
+            "required": ["patch"]}}},
 }
 
 
