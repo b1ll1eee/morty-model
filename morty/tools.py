@@ -143,12 +143,16 @@ def edit_file(ws: Workspace, path: str, old: str, new: str) -> str:
     return f"แก้ {path} แล้ว ({len(before.splitlines())} → {len(after.splitlines())} บรรทัด)"
 
 
-def write_file(ws: Workspace, path: str, content: str) -> str:
-    """สร้างไฟล์ใหม่หรือเขียนทับทั้งไฟล์ สำหรับไฟล์เดิมใช้ edit_file จะปลอดภัยกว่า"""
+def write_file(ws: Workspace, path: str, content: str, overwrite: bool = False) -> str:
+    """สร้างไฟล์ใหม่ หรือเขียนทับทั้งไฟล์เมื่อระบุ overwrite=true เท่านั้น
+    (eval พบว่าโมเดลชอบเขียนทับไฟล์เดิมแล้วทำฟังก์ชันอื่นหาย จึงบังคับให้ระบุเจตนา)"""
     p = ws.resolve(path)
     before = p.read_text(encoding="utf-8") if p.is_file() else ""
     if before == content:
         return f"{path} มีเนื้อหานี้อยู่แล้ว ไม่ได้เปลี่ยนอะไร"
+    if p.is_file() and not overwrite:
+        return (f"{path} มีอยู่แล้ว ({len(before.splitlines())} บรรทัด) ไม่เขียนทับ: ถ้าแก้บางส่วนให้ใช้ edit_file "
+                "ถ้าตั้งใจแทนที่ทั้งไฟล์จริงๆ ให้เรียก write_file ซ้ำพร้อม overwrite=true และต้องมีเนื้อหาเดิมที่ต้องเก็บครบ")
     what = "เขียนทับ" if p.is_file() else "สร้างไฟล์ใหม่"
     if not ws.confirm(f"{what} {path}:\n{_diff(before, content, path)}"):
         return "ผู้ใช้ไม่อนุญาตให้เขียนไฟล์นี้ ให้แสดงเนื้อหาที่เสนอแทน"
@@ -254,9 +258,10 @@ SCHEMAS = {
             "new": {"type": "string", "description": "ข้อความใหม่ที่จะแทนที่"}},
             "required": ["path", "old", "new"]}}},
     "write_file": {"type": "function", "function": {
-        "name": "write_file", "description": "สร้างไฟล์ใหม่ หรือเขียนทับทั้งไฟล์ (ผู้ใช้เห็น diff และอนุญาตก่อน) ใช้สำหรับไฟล์ใหม่ สำหรับไฟล์เดิมให้ใช้ edit_file",
+        "name": "write_file", "description": "สร้างไฟล์ใหม่ (ผู้ใช้เห็น diff และอนุญาตก่อน) ไฟล์ที่มีอยู่แล้วจะไม่ถูกเขียนทับเว้นแต่ส่ง overwrite=true สำหรับการแก้บางส่วนให้ใช้ edit_file",
         "parameters": {"type": "object", "properties": {
-            "path": {"type": "string"}, "content": {"type": "string", "description": "เนื้อหาทั้งไฟล์"}},
+            "path": {"type": "string"}, "content": {"type": "string", "description": "เนื้อหาทั้งไฟล์"},
+            "overwrite": {"type": "boolean", "description": "true เมื่อตั้งใจแทนที่ไฟล์เดิมทั้งไฟล์"}},
             "required": ["path", "content"]}}},
     "apply_patch": {"type": "function", "function": {
         "name": "apply_patch", "description": "ใช้ unified diff (--- a/path, +++ b/path, @@) กับไฟล์ใน workspace ผู้ใช้อนุญาตก่อน ใช้เมื่อแก้หลายจุดในหลายไฟล์พร้อมกัน ถ้าไม่แน่ใจรูปแบบ ให้ใช้ edit_file",

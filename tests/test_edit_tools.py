@@ -33,8 +33,10 @@ def test_write_file_creates_and_overwrites(workspace):
     out = tools.write_file(ws(workspace), "pkg/new/mod.py", "VALUE = 1\n")
     assert out.startswith("สร้างไฟล์ใหม่") and (workspace / "pkg/new/mod.py").read_text(encoding="utf-8") == "VALUE = 1\n"
     assert tools.write_file(ws(workspace), "pkg/new/mod.py", "VALUE = 1\n").endswith("ไม่ได้เปลี่ยนอะไร")
-    assert tools.write_file(ws(workspace), "pkg/new/mod.py", "VALUE = 2\n").startswith("เขียนทับ")
-    assert "ไม่อนุญาต" in tools.write_file(ws(workspace, allow=False), "pkg/new/mod.py", "VALUE = 3\n")
+    assert "ไม่เขียนทับ" in tools.write_file(ws(workspace), "pkg/new/mod.py", "VALUE = 2\n")  # ต้องระบุ overwrite
+    assert (workspace / "pkg/new/mod.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert tools.write_file(ws(workspace), "pkg/new/mod.py", "VALUE = 2\n", overwrite=True).startswith("เขียนทับ")
+    assert "ไม่อนุญาต" in tools.write_file(ws(workspace, allow=False), "pkg/new/mod.py", "VALUE = 3\n", overwrite=True)
 
 
 def test_write_file_outside_workspace_rejected(workspace):
