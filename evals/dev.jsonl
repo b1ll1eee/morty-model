@@ -1,6 +1,6 @@
 {"id": "py-json", "q": "Python: อ่านไฟล์ config.json มาเป็น dict ทำยังไง", "expect_any": ["json.load"], "thai": true}
 {"id": "git-restore", "q": "git: แก้ไฟล์ไปแล้วแต่ยังไม่ได้ commit อยากย้อนไฟล์นั้นกลับไปเหมือนเดิม ใช้คำสั่งอะไร", "expect_any": ["git restore", "git checkout"], "thai": true}
-{"id": "py-list-tuple", "q": "list กับ tuple ใน Python ต่างกันยังไง ตอบสั้นๆ", "expect_any": ["immutable", "เปลี่ยนแปลง", "แก้ไข"], "thai": true}
+{"id": "py-list-tuple", "q": "list กับ tuple ใน Python ต่างกันยังไง ตอบสั้นๆ", "expect_any": ["immutable", "เปลี่ยนแปลง", "เปลี่ยนค่า", "แก้ไข"], "thai": true}
 {"id": "py-average", "q": "เขียนฟังก์ชัน Python รับ list ของตัวเลข คืนค่าเฉลี่ย ถ้า list ว่างให้คืน 0", "expect_all": ["def "], "expect_any": ["sum(", "statistics.mean", "fmean"], "thai": true}
 {"id": "http-404-500", "q": "HTTP 404 กับ 500 ต่างกันยังไง", "expect_any": ["not found", "ไม่พบ", "หาไม่เจอ"], "thai": true}
 {"id": "sql-having", "q": "SQL: มีตาราง customers(id, name) และ orders(id, customer_id) อยากได้ชื่อลูกค้าที่สั่งซื้อมากกว่า 5 ครั้ง เขียน query ให้หน่อย", "expect_any": ["having", "count("], "thai": true}
@@ -10,3 +10,11 @@
 {"id": "py-dict-bigo", "q": "ค้นหา key ใน dict ของ Python มี time complexity เท่าไร เพราะอะไร", "expect_any": ["o(1)", "คงที่", "constant", "hash"], "thai": true}
 {"id": "morty-add-expert", "q": "ในโปรเจกต์ morty-model ถ้าจะเพิ่ม expert ใหม่ต้องทำอะไรบ้าง", "expect_any": ["toml"], "thai": true}
 {"id": "morty-rag-index", "q": "morty-model เก็บดัชนี RAG ไว้ที่ไหน และใช้โมเดล embedding อะไร", "expect_all": ["nomic-embed-text"], "expect_any": [".morty-index.json", "morty-index"], "thai": true}
+{"id": "py-venv", "q": "สร้าง virtual environment ใน Python แล้วติดตั้ง requests ทำยังไง", "expect_any": ["venv", "pip install"], "thai": true}
+{"id": "git-undo-commit", "q": "git: commit ไปแล้วแต่ยังไม่ได้ push อยากยกเลิก commit ล่าสุดโดยเก็บการแก้ไขไว้", "expect_any": ["reset --soft", "reset HEAD~1", "reset --mixed"], "thai": true}
+{"id": "en-question-thai-answer", "q": "What is the difference between a process and a thread? Please explain.", "expect_any": ["หน่วยความจำ", "memory", "แชร์", "share"], "thai": true, "note": "คำถามอังกฤษต้องตอบไทย"}
+{"id": "py-traceback", "q": "เจอ error นี้แก้ยังไง\nTypeError: can only concatenate str (not \"int\") to str\nจากบรรทัด print('อายุ ' + age)", "expect_any": ["str(age)", "f\"", "f'", "f-string", "แปลง"], "thai": true}
+{"id": "regex-email", "q": "เขียน regex ตรวจรูปแบบอีเมลแบบง่ายๆ ใน Python", "expect_any": ["re.", "@"], "expect_all": ["import re"], "thai": true}
+{"id": "api-status-code", "q": "ออกแบบ REST API สร้างผู้ใช้ใหม่สำเร็จ ควรคืน HTTP status อะไร และถ้าอีเมลซ้ำควรคืนอะไร", "expect_any": ["201"], "expect_all": ["409"], "thai": true, "note": "409 Conflict เป็นคำตอบมาตรฐาน บางคนตอบ 400/422 ก็พอรับได้ แต่ eval นี้ตั้งใจเข้มงวด"}
+{"id": "py-async-basic", "q": "ใน Python ถ้าจะเรียก 3 API พร้อมกันด้วย asyncio ทำยังไง ให้ตัวอย่างสั้นๆ", "expect_any": ["gather", "TaskGroup", "create_task"], "expect_all": ["async def", "await"], "thai": true}
+{"id": "sql-index", "q": "query SELECT * FROM orders WHERE customer_id = 42 ช้ามากบนตาราง 10 ล้านแถว ควรทำอะไรเป็นอย่างแรก", "expect_any": ["index", "ดัชนี"], "thai": true}

@@ -24,6 +24,23 @@ ollama serve &
 โฟลเดอร์ข้างเคียง `/Volumes/DEV/models/lora/` และ `mlx/` สำรองไว้สำหรับ adapter และโมเดลแปลงรูปแบบในอนาคต
 ตรวจความคืบหน้าดาวน์โหลดด้วย `du -h` บนไฟล์ `*-partial` ไม่ใช่ `ls -l` เพราะ Ollama จองขนาดเต็มไว้ก่อน
 
+## เปิด Ollama อัตโนมัติตอน login (LaunchAgent)
+
+ไฟล์ `~/Library/LaunchAgents/com.morty.ollama.plist` รัน `~/.local/bin/ollama serve` พร้อมตัวแปร
+`OLLAMA_MODELS=/Volumes/DEV/models/ollama` และ `OLLAMA_KEEP_ALIVE=1h` (ถือโมเดลไว้ใน RAM 1 ชั่วโมง ไม่ต้องโหลดซ้ำเวลาสลับ 7b กับ 14b)
+log อยู่ที่ `~/Library/Logs/morty/ollama.log`
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.morty.ollama.plist   # เปิดใช้
+launchctl bootout   gui/$(id -u)/com.morty.ollama                                 # ปิด
+launchctl print     gui/$(id -u)/com.morty.ollama | grep -E "state|pid"           # ดูสถานะ
+```
+
+ข้อควรระวัง: process ที่ launchd เปิดไม่ได้รับสิทธิ์เข้าถึงดิสก์ภายนอกเหมือนโปรแกรมที่เปิดจาก Terminal
+ครั้งแรก macOS จะถามสิทธิ์ "ollama ต้องการเข้าถึงไฟล์บน removable volume" ถ้าไม่กดอนุญาต server จะค้างตอนเปิดไฟล์และไม่ตอบ request
+ถ้าไม่เห็นกล่องถาม ให้ไปที่ System Settings → Privacy & Security → Files and Folders (หรือ Full Disk Access) แล้วเพิ่ม `~/.local/ollama/ollama`
+จนกว่าจะอนุญาต ให้เปิด server เองจาก Terminal ด้วย `ollama serve` ซึ่งอ่านค่าจาก `~/.zshrc` อยู่แล้ว
+
 ## ไฟล์ profile
 
 แต่ละ profile เป็นไฟล์ TOML ใน `morty/profiles/`
@@ -78,7 +95,9 @@ MacBook Pro M4 24 GB, eval dev 12 ข้อ, RAG เปิด, ปิดโห�
 
 ก่อนมี RAG: 9/12 สองข้อที่ตกคือคำถามเกี่ยวกับโปรเจกต์ที่โมเดลไม่มีทางรู้เอง
 
-### eval reviewer 11 ข้อ (โค้ดที่ฝังบั๊กไว้ 10 ข้อ + โค้ดสะอาด 1 ข้อ)
+### eval reviewer
+
+รอบแรก 11 ข้อ (บั๊กฝังไว้ 10 + โค้ดสะอาด 1)
 
 | โมเดล | ผ่าน | เฉลี่ยต่อข้อ | ข้อที่พลาด |
 |---|---|---|---|
@@ -86,7 +105,21 @@ MacBook Pro M4 24 GB, eval dev 12 ข้อ, RAG เปิด, ปิดโห�
 | `qwen3:14b` | 10/11 | 20.8s | โค้ดสะอาด: ยังรายงานประเด็นเล็กน้อยแทนที่จะบอกว่าผ่าน |
 
 สองข้อที่ 7b พลาดเป็นเรื่องที่ reviewer ต้องจับได้ จึงตั้งให้ profile reviewer ใช้ `qwen3:14b`
-ส่วน 14b มีแนวโน้ม false positive กับโค้ดที่ไม่มีปัญหา ต้องอ่านผลด้วยวิจารณญาณ ใช้เป็นด่านแรกก่อนคนอ่าน ไม่ใช่ด่านตัดสิน
+
+รอบสอง ขยายเป็น 16 ข้อ (บั๊กฝังไว้ 13 + โค้ดสะอาด 3) และปรับ prompt 2 รอบ
+
+| prompt | บั๊กที่จับได้ | โค้ดสะอาดที่บอกว่าผ่าน | บทเรียน |
+|---|---|---|---|
+| เพิ่มกฎ "โค้ดสั้นตามแบบแผนให้ผ่านได้" | 12/13 | 2/3 | พลาดโค้ดที่ลืม `await` เพราะผ่านเร็วเกินไป กฎนี้สร้าง false negative |
+| ตัดกฎนั้น เพิ่ม "ตรวจครบ 4 หัวข้อแม้โค้ดสั้น อ่านคอมเมนต์และ type hint" | 13/13 | 1/3 | จับบั๊กครบ แต่ยังติโค้ดที่ดี เช่น เสนอให้เปลี่ยน `except ConnectionError` เป็น `except Exception` |
+
+เลือกใช้ prompt รอบหลัง เพราะด่านแรกต้องไม่พลาดบั๊ก ส่วน false positive คนอ่านคัดออกได้
+เวลาเฉลี่ย 24s ต่อข้อ (ตัดข้อแรกที่โหลด weight)
+
+### eval dev รอบสอง 20 ข้อ
+
+หลังเสริม prompt ให้ตอบไทยเสมอ `qwen2.5:7b` ผ่าน 20/20 รวมคำถามภาษาอังกฤษที่ต้องตอบไทย เฉลี่ย 14.5s ต่อข้อ
+(รอบแรกของรอบนี้ได้ 19/20 เพราะตัวตรวจไม่รู้จักคำว่า "เปลี่ยนค่า" แก้ keyword แล้ว ไม่ได้แก้โมเดล)
 
 ## Log การใช้งาน
 
